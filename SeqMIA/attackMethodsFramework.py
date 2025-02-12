@@ -414,6 +414,9 @@ def set_args():
     parser.add_argument('--num_epoch_for_distillation', type=int, default=50, help='distillation epoch')
     parser.add_argument('--attack_epoch', type=int, default=150, help='attack epoch(RNN epoch)')
     parser.add_argument('--metricFlag', type=str, default='loss&max&sd&entropy&mentropy')
+    parser.add_argument('--pathToLoadData', type=str, default='./data/cifar-10-batches-py-official',
+                        help='the official data path')
+    parser.add_argument('--dataFolderPath', type=str, default='./data')
     parser.add_argument('--resultDataPath', type=str, default='./results/', help='the path of results')
     parser.add_argument('--preprocessData', type=bool, default=True, help='True:preprocess dataset')
     parser.add_argument('--trainTargetModel', type=bool, default=True, help='True:train target model')
