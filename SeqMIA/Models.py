@@ -6,6 +6,8 @@ from torch.utils.data import Dataset
 import numpy as np
 import torch.nn.functional as F
 import math
+from ...P2PNeXt.Networks.P2P.models.p2pnet_conv_next import build
+from ...P2PNeXt.utils import run_P2P_inference
 
 import torch.nn.utils.rnn as rnn_utils
 
@@ -211,6 +213,34 @@ class LSTM_Attention(nn.Module):
         out = self.layer3(out2)
         return out, out2
 
+
+class P2PNeXt(nn.Module):
+    '''
+    A wrapper for the P2PNeXt model.
+    This wrapper holds the model itself and the criterion.
+    '''
+    def __init__(self, args, checkpoint_path=None):
+        super(P2PNeXt, self).__init__()
+        self.args = args
+        self.model, self.criterion = self._build_model()
+        if checkpoint_path:
+            self._load_checkpoint(checkpoint_path)
+        
+    def _build_model(self):
+        model, criterion = build(args=self.args, training=True)
+        return model, criterion
+    
+    def _load_checkpoint(self, checkpoint_path: str) -> None:
+        checkpoint = torch.load(checkpoint_path)
+        self.model.load_state_dict(checkpoint['model'], map_location='cpu', weights_only=False)
+
+    def run_inference(self, image_path_list: list[str], image_transformation: str=None, save_directory: str=None, save_file_type: str=None, device: torch.device=torch.device("cpu")):
+        predictions = run_P2P_inference(image_path_list, self.model, image_transformation, save_directory, save_file_type, device)
+        return predictions
+
+    def forward(self, x):
+        return self.model(x)
+    
 
 class CIFARData(Dataset):
     def __init__(self, X_train, y_train):
