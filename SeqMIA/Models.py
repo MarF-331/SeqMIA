@@ -1,16 +1,22 @@
 from re import X
 import torch
 import torch.nn as nn
+from dataclasses import dataclass
 from torch.autograd import Variable
 from torch.utils.data import Dataset
 import numpy as np
 import torch.nn.functional as F
 import math
-from ...P2PNeXt.Networks.P2P.models.p2pnet_conv_next import build
-from ...P2PNeXt.utils import run_P2P_inference
-
+import os
+import sys
 import torch.nn.utils.rnn as rnn_utils
 
+current_dir = os.path.dirname(os.path.abspath(__file__))
+path_to_p2p_next = os.path.join(current_dir, "../P2PNeXt")
+sys.path.append(path_to_p2p_next)
+
+from P2PNeXt.Networks.P2P.models.p2pnet_conv_next import build
+from P2PNeXt.utils import run_P2P_inference
 
 class Flatten(nn.Module):
     def forward(self, input):
@@ -214,6 +220,20 @@ class LSTM_Attention(nn.Module):
         return out, out2
 
 
+@dataclass
+class P2PNeXtStandardArgs():
+    backbone: str = "conv_next"
+    backbone_type: str = "conv_next_tiny"
+    feature_map: str = "feature_map 1"
+    feature_pyramid: str = "new"
+    row: int = 2
+    line: int = 2
+    point_loss_coef: float = 0.0002
+    eos_coef: float = 0.5
+    set_cost_class: float = 1
+    set_cost_point: float = 0.05
+
+
 class P2PNeXt(nn.Module):
     '''
     A wrapper for the P2PNeXt model.
@@ -231,11 +251,14 @@ class P2PNeXt(nn.Module):
         return model, criterion
     
     def _load_checkpoint(self, checkpoint_path: str) -> None:
-        checkpoint = torch.load(checkpoint_path)
-        self.model.load_state_dict(checkpoint['model'], map_location='cpu', weights_only=False)
+        if os.path.exists(checkpoint_path):
+            checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
+            self.model.load_state_dict(checkpoint['model'])
+        else:
+            print(f"Path was not found: {checkpoint_path}")
 
     def run_inference(self, image_path_list: list[str], image_transformation: str=None, save_directory: str=None, save_file_type: str=None, device: torch.device=torch.device("cpu")):
-        predictions = run_P2P_inference(image_path_list, self.model, image_transformation, save_directory, save_file_type, device)
+        predictions = run_P2P_inference(image_path_list, self.model, image_transformation, 0.5, save_directory, save_file_type, device)
         return predictions
 
     def forward(self, x):
