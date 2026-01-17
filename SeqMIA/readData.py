@@ -69,13 +69,13 @@ def preprocessingCIFAR(toTrainData, toTestData):
         return rescale(toTrainData, offset, scale)
 
 
-def readJHU(data_path) -> dict[str, tuple[str, np.ndarray]]:
+def readJHU(data_path) -> list[tuple[str, np.ndarray]]:
     splits = ["train", "val", "test"]
-    result = {}
+    result = []
     for split in splits:
         image_paths = os.listdir(os.path.join(data_path, split, "images"))
         gt_paths = os.listdir(os.path.join(data_path, split, "gt"))
         for img_path, gt_path in zip(image_paths, gt_paths):
-            result.update(load_jhu_data_from_path(os.path.join(data_path, split, "images", img_path), os.path.join(data_path, split, "gt", gt_path)))
+            result.append(load_jhu_data_from_path(os.path.join(data_path, split, "images", img_path), os.path.join(data_path, split, "gt", gt_path)))
     
     return result

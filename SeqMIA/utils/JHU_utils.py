@@ -24,7 +24,7 @@ def load_ground_truth_points_from_path(ground_truth_path: str) -> np.ndarray:
     return np.array(points)
 
 
-def load_jhu_data_from_path(image_path: str, ground_truth_path: str) -> dict[str, tuple[str, np.ndarray]]:
+def load_jhu_data_from_path(image_path: str, ground_truth_path: str) -> tuple[str, np.ndarray]:
     if not os.path.exists(image_path):
         raise ValueError(f"Image path not found: {image_path}")
     
@@ -34,6 +34,5 @@ def load_jhu_data_from_path(image_path: str, ground_truth_path: str) -> dict[str
     if not (os.path.basename(image_path).split(".")[0] == os.path.basename(ground_truth_path).split(".")[0]):
         raise ValueError(f"Image path: {image_path} does not match to ground truth path: {ground_truth_path}")
     
-    image_name = os.path.basename(image_path)
     ground_truth_points = load_ground_truth_points_from_path(ground_truth_path)
-    return {image_name: (image_path, ground_truth_points)}
+    return image_path, ground_truth_points

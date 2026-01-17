@@ -4,6 +4,9 @@ import torch.nn as nn
 from dataclasses import dataclass
 from torch.autograd import Variable
 from torch.utils.data import Dataset
+import torchvision.transforms as transforms
+from typing import Callable
+from PIL import Image
 import numpy as np
 import torch.nn.functional as F
 import math
@@ -297,3 +300,43 @@ class CIFARDataForDistill(Dataset):
         label = np.array(label).astype(np.int64)
         label = torch.from_numpy(label)
         return img, label, softlabel
+
+
+class JHUData(Dataset):
+    def __init__(self, image_data: list[tuple[str, np.ndarray]], transform :Callable[[Image.Image], Image.Image]=None):
+        self.image_data = sorted(image_data, key=lambda tup: os.path.basename(tup[0]))
+        self.transform = transform
+    
+    def __len__(self):
+        return len(self.image_data)
+    
+    def __getitem__(self, index: int) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+        image_path, ground_truth_points = self.image_data[index]
+        img_raw = Image.open(image_path).convert("RGB")
+        img_raw, ground_truth_points = self._resize_to_multiple_of_128(img_raw, ground_truth_points)
+
+        if self.transform:
+            img_raw = self.transform(img_raw)
+        else:
+            to_tensor = transforms.Compose([transforms.ToTensor()])
+            img_tensor = to_tensor(img_raw)
+
+        ground_truth_points = [ground_truth_points]
+        target = [{} for i in range(len(ground_truth_points))]
+        for i, _ in enumerate(ground_truth_points):
+            target[i] = {
+                "point": torch.tensor(ground_truth_points[i], dtype=torch.float32),
+                "image_id": torch.tensor([index], dtype=torch.long),
+                "labels": torch.ones(ground_truth_points[i].shape[0], dtype=torch.long)
+            }
+
+        return img_tensor, target
+
+    def _resize_to_multiple_of_128(self, img: Image.Image, ground_truth_points: np.ndarray):
+        width, height = img.size
+        new_width, new_height = max(128, (width // 128) * 128), max(128, (height // 128) * 128)
+        factor_width, factor_height = width / new_width, height / new_height
+        img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+        ground_truth_points_out = np.array([[x * factor_width, y * factor_height] for x, y in ground_truth_points])
+        assert ground_truth_points_out.shape == ground_truth_points.shape
+        return img, ground_truth_points_out
