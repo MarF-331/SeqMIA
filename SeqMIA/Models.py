@@ -340,3 +340,18 @@ class JHUData(Dataset):
         ground_truth_points_out = np.array([[x * factor_width, y * factor_height] for x, y in ground_truth_points])
         assert ground_truth_points_out.shape == ground_truth_points.shape
         return img, ground_truth_points_out
+
+
+class JHUDataForDistill(Dataset):
+    def __init__(self, image_data: list[tuple[str, np.ndarray]], soft_labels, transform :Callable[[Image.Image], Image.Image]=None):
+        self.data = JHUData(image_data, transform)
+        self.soft_labels = soft_labels
+    
+    def __len__(self):
+        return len(self.data)
+    
+    def __getitem__(self, index):
+        img, target = self.data[index]
+        soft_label = self.soft_labels[index]
+        
+        return img, target, soft_label
