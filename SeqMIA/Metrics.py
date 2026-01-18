@@ -5,7 +5,7 @@ from torch.autograd import Variable
 from torch.utils.data import Dataset  # 导入抽象类Dataset
 import numpy as np
 import torch.nn.functional as F
-import attackMethodsFramework as att_frame
+from . import attackMethodsFramework as att_frame
 
 
 def ComputeMetric(labels, labels_onehot_softlabels, pre_vectors, metricFlag):

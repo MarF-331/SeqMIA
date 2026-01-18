@@ -17,9 +17,9 @@ import csv
 import math
 import random
 
-import Models as models  # 自己写的所有的模型架构
+from . import Models as models  # 自己写的所有的模型架构
 
-import Metrics as metr  # 自己写的所有metric计算方式
+from . import Metrics as metr  # 自己写的所有metric计算方式
 import torch.nn.functional as F
 
 from torch.optim.lr_scheduler import StepLR
@@ -28,7 +28,7 @@ from sklearn.metrics import accuracy_score
 from sklearn.metrics import classification_report
 from sklearn.metrics import roc_auc_score
 from sklearn.metrics import roc_curve, auc
-import attackMethodsFramework as att_frame
+from . import attackMethodsFramework as att_frame
 
 
 def createMetricSequences(targetX, targetY, num_metrics):

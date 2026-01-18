@@ -5,18 +5,18 @@ from types import new_class
 sys.dont_write_bytecode = True
 import numpy as np
 import math
-import Metrics as metr  # 自己写的所有metric计算方式
+from . import Metrics as metr  # 自己写的所有metric计算方式
 import torch.nn.functional as F
 
 import random
 import os
-import Models as models
-import readData as rd
+from . import Models as models
+from . import readData as rd
 import torch.nn as nn
 import torch
 from torch.optim.lr_scheduler import StepLR
-import SeqMIA as SeqMIA
-import MetricSequence as MS
+from . import SeqMIA as SeqMIA
+from . import MetricSequence as MS
 
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader

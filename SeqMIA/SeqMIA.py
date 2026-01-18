@@ -1,13 +1,14 @@
 import torch
-import attackMethodsFramework as att_frame
+from . import attackMethodsFramework as att_frame
 import numpy as np
-import Models as models
+from . import Models as models
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
-import Metrics as metr
-import readData as rd
+from . import Metrics as metr
+from . import readData as rd
 from sklearn.datasets import fetch_20newsgroups
 from sklearn.feature_extraction.text import TfidfVectorizer
+from .utils.JHU_utils import split_jhu_data_into_density_bins
 import torch.nn as nn
 from torch.optim.lr_scheduler import StepLR
 import os
@@ -76,6 +77,51 @@ def shuffleAndSplitDataByClass_distillation(dataX, dataY,cluster):
 
     return toTrainData, toTrainLabel,   shadowData,shadowLabel,    toTestData,toTestLabel,      shadowTestData,shadowTestLabel,    distillationData, distillationDataLabel
 
+
+def shuffleAndSplitJHUDataByDensity_distillation(image_gt_pairs: list[tuple[str, np.ndarray]], seed: int=1234) -> tuple[list[tuple[str, np.ndarray]]]:
+    '''
+    Shuffles and splits the JHU dataset into 5 parts for target train/test, shadow train/test and distillation.
+    
+    Args:
+        image_gt_pairs (list[tuple[str,np.ndarray]]): List of tuples containing image paths and their corresponding ground truth points.
+        seed (int): A seed for reproducability.
+    
+    Returns:
+        tuple[list[tuple[str,np.ndarray]]]: Tuple containing the split datasets for target model and shadow model along with distillation data.
+    '''
+    binned_data = split_jhu_data_into_density_bins(image_gt_pairs)
+    random.seed(seed)
+    np.random.seed(seed)
+    
+    toTrain: list[tuple[str, np.ndarray]] = []
+    shadowTrain: list[tuple[str, np.ndarray]] = []
+    toTest: list[tuple[str, np.ndarray]] = []
+    shadowTest: list[tuple[str, np.ndarray]] = []
+    distillation: list[tuple[str, np.ndarray]] = []
+    n_splits = 5
+
+    for bin_name, data_in_bin in binned_data.items():
+        print(f"Processing bin: {bin_name} with {len(data_in_bin)} samples")
+        n_data_in_bin = len(data_in_bin)
+        # Split data equally into n_splits parts
+        split_size = n_data_in_bin // n_splits
+        random.shuffle(data_in_bin)
+        toTrain.extend(data_in_bin[0:split_size])
+        shadowTrain.extend(data_in_bin[split_size:2*split_size])
+        toTest.extend(data_in_bin[2*split_size:3*split_size])
+        shadowTest.extend(data_in_bin[3*split_size:4*split_size])
+        distillation.extend(data_in_bin[4*split_size:])
+    
+    # final shuffle
+    random.shuffle(toTrain)
+    random.shuffle(shadowTrain)
+    random.shuffle(toTest)
+    random.shuffle(shadowTest)
+    random.shuffle(distillation)
+    print(f"Final dataset sizes: toTrain={len(toTrain)}, shadow={len(shadowTrain)}, toTest={len(toTest)}, shadowTest={len(shadowTest)}, distillation={len(distillation)}")
+
+    return toTrain, toTest, shadowTrain, shadowTest, distillation
+        
 
 def get_file_name(path):
     model_file_name = []
