@@ -313,12 +313,9 @@ class JHUData(Dataset):
     
     def __getitem__(self, index: int) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         image_path, ground_truth_points = self.image_data[index]
-        print(ground_truth_points[:5])
         img_raw = Image.open(image_path).convert("RGB")
         img_raw, ground_truth_points = self._resize_image_to_target_size(img_raw, ground_truth_points, self.fixed_image_size)
-        print(ground_truth_points[:5])
         img_raw, ground_truth_points = self._resize_to_multiple_of_128(img_raw, ground_truth_points)
-        print(ground_truth_points[:5])
 
         if self.transform:
             img_tensor = self.transform(img_raw)
@@ -326,23 +323,18 @@ class JHUData(Dataset):
             to_tensor = transforms.Compose([transforms.ToTensor()])
             img_tensor = to_tensor(img_raw)
 
-        ground_truth_points = [ground_truth_points]
-        target = [{} for i in range(len(ground_truth_points))]
-        for i, _ in enumerate(ground_truth_points):
-            target[i] = {
-                "point": torch.tensor(ground_truth_points[i], dtype=torch.float32),
-                "image_id": torch.tensor([index], dtype=torch.long),
-                "labels": torch.ones(ground_truth_points[i].shape[0], dtype=torch.long)
-            }
+        target = {
+            "point": torch.tensor(ground_truth_points, dtype=torch.float32),
+            "image_id": torch.tensor([index], dtype=torch.long),
+            "labels": torch.ones(ground_truth_points.shape[0], dtype=torch.long)
+        }
 
         return img_tensor, target
 
     def _resize_image_to_target_size(self, img: Image.Image, ground_truth_points: np.ndarray, target_size: tuple[int, int]) -> Image.Image:
         width, height = img.size
-        print(width, height)
         target_width, target_height = target_size
         factor_width, factor_height = target_width / width, target_height / height
-        print(factor_width, factor_height)
         img = img.resize((target_width, target_height), Image.Resampling.LANCZOS)
         ground_truth_points = np.array([[x * factor_width, y * factor_height] for x, y in ground_truth_points])
         return img, ground_truth_points

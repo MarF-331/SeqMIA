@@ -1,4 +1,5 @@
 import os
+import torch
 import numpy as np
 import torchvision.transforms as transforms
 
@@ -102,3 +103,19 @@ def split_jhu_data_into_density_bins(image_gt_pairs: list[tuple[str, np.ndarray]
             density_bins["super_high"].append((image_path, gt_points))
     
     return density_bins
+
+
+def jhu_collate_fn(batch: list[tuple[torch.Tensor, list[dict[str, torch.Tensor]]]]) -> tuple[torch.Tensor, list[list[dict[str, torch.Tensor]]]]:
+    '''
+    A collate function for JHU dataset to stack image tensors and aggregate targets.
+    Images must be of the same size before using this collate function.
+    
+    Args:
+        batch (list[tuple[torch.Tensor,list[dict[str, torch.Tensor]]]]): List of tuples containing image tensors and their corresponding targets.
+    
+    Returns:
+        tuple[torch.Tensor,list[list[dict[str,torch.Tensor]]]]: A tuple containing stacked image tensors and a list of targets.
+    '''
+    image_tensors_stacked = torch.stack([tensors for tensors, _ in batch])
+    targets_stacked = [targets for _, targets in batch]
+    return image_tensors_stacked, targets_stacked
