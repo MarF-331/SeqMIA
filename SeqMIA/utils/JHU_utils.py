@@ -5,7 +5,11 @@ def load_ground_truth_points_from_path(ground_truth_path: str) -> np.ndarray:
     '''
     Returns the ground truth points as a numpy array given a path to file specifying the ground truth points like a .txt or a .mat file
     
-    :param gt_path: Path to the file specifying the ground truth points.
+    Args:
+        ground_truth_path (str): Path to the ground truth file.
+
+    Returns:
+        np.ndarray: Numpy array of shape (N, 2) where N is the number of ground truth points, and each point is represented by its (x, y) coordinates.
     '''
     # load ground truth points
     points = []
@@ -25,6 +29,17 @@ def load_ground_truth_points_from_path(ground_truth_path: str) -> np.ndarray:
 
 
 def load_jhu_data_from_path(image_path: str, ground_truth_path: str) -> tuple[str, np.ndarray]:
+    '''
+    Loads a tuple of image path and ground truth points from the specified paths.
+    The image path and ground truth path must correspond to each other or else a ValueError is raised.
+    
+    Args:
+        image_path (str): Path to the image file.
+        ground_truth_path (str): Path to the ground truth file.
+    
+    Returns:
+        tuple[str,np.ndarray]: A tuple containing the image path and the ground truth points as a numpy array.
+    '''
     if not os.path.exists(image_path):
         raise ValueError(f"Image path not found: {image_path}")
     
@@ -36,3 +51,47 @@ def load_jhu_data_from_path(image_path: str, ground_truth_path: str) -> tuple[st
     
     ground_truth_points = load_ground_truth_points_from_path(ground_truth_path)
     return image_path, ground_truth_points
+
+
+def split_jhu_data_into_density_bins(image_gt_pairs: list[tuple[str, np.ndarray]]) -> dict[str, list[tuple[str, np.ndarray]]]:
+    '''
+    Splits the JHU dataset into different density bins based on the number of ground truth points per image.
+    The bins are defined as follows:
+    - very_low: 0-35 points
+    - low: 36-75 points
+    - medium: 76-150 points
+    - high: 151-500 points
+    - very_high: 501-5000 points
+    - super_high: 5001+ points
+    
+    Args:
+        image_gt_pairs (list[tuple[str, np.ndarray]]): List of tuples containing image paths and their corresponding ground truth points.
+    
+    Returns:
+        dict[str,list[tuple[str, np.ndarray]]]: Dictionary with keys as density bin names and values as lists of image-ground truth point tuples.
+    '''
+    density_bins = {
+        "very_low": [],
+        "low": [],
+        "medium": [],
+        "high": [],
+        "very_high": [],
+        "super_high": []
+    }
+
+    for image_path, gt_points in image_gt_pairs:
+        num_points = gt_points.shape[0]
+        if num_points <= 35:
+            density_bins["very_low"].append((image_path, gt_points))
+        elif num_points <= 75:
+            density_bins["low"].append((image_path, gt_points))
+        elif num_points <= 150:
+            density_bins["medium"].append((image_path, gt_points))
+        elif num_points <= 500:
+            density_bins["high"].append((image_path, gt_points))
+        elif num_points <= 5000:
+            density_bins["very_high"].append((image_path, gt_points))
+        else:
+            density_bins["super_high"].append((image_path, gt_points))
+    
+    return density_bins

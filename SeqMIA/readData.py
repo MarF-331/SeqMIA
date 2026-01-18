@@ -69,13 +69,25 @@ def preprocessingCIFAR(toTrainData, toTestData):
         return rescale(toTrainData, offset, scale)
 
 
-def readJHU(data_path) -> list[tuple[str, np.ndarray]]:
+def readJHU(data_root_path: str) -> list[tuple[str, np.ndarray]]:
+    '''
+    Reads the JHU dataset from the specified root path.
+    
+    Args:
+        data_root_path (str): Root path to the JHU dataset containing 'train', 'val', and 'test' folders.
+    
+    Returns:
+        list[tuple[str,np.ndarray]]: List of tuples containing image paths and their corresponding ground truth points.
+    '''
     splits = ["train", "val", "test"]
     result = []
     for split in splits:
-        image_paths = os.listdir(os.path.join(data_path, split, "images"))
-        gt_paths = os.listdir(os.path.join(data_path, split, "gt"))
+        image_paths = os.listdir(os.path.join(data_root_path, split, "images"))
+        gt_paths = os.listdir(os.path.join(data_root_path, split, "gt"))
         for img_path, gt_path in zip(image_paths, gt_paths):
-            result.append(load_jhu_data_from_path(os.path.join(data_path, split, "images", img_path), os.path.join(data_path, split, "gt", gt_path)))
+            result.append(load_jhu_data_from_path(
+                os.path.join(data_root_path, split, "images", img_path), 
+                os.path.join(data_root_path, split, "gt", gt_path)
+                ))
     
     return result
