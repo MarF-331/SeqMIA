@@ -303,20 +303,25 @@ class CIFARDataForDistill(Dataset):
 
 
 class JHUData(Dataset):
-    def __init__(self, image_data: list[tuple[str, np.ndarray]], transform :Callable[[Image.Image], Image.Image]=None):
+    def __init__(self, image_data: list[tuple[str, np.ndarray]], transform :Callable[[Image.Image], Image.Image]=None, fixed_image_size: tuple[int, int]=(768, 640)):
         self.image_data = sorted(image_data, key=lambda tup: os.path.basename(tup[0]))
         self.transform = transform
+        self.fixed_image_size = fixed_image_size
     
     def __len__(self):
         return len(self.image_data)
     
     def __getitem__(self, index: int) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         image_path, ground_truth_points = self.image_data[index]
+        print(ground_truth_points[:5])
         img_raw = Image.open(image_path).convert("RGB")
+        img_raw, ground_truth_points = self._resize_image_to_target_size(img_raw, ground_truth_points, self.fixed_image_size)
+        print(ground_truth_points[:5])
         img_raw, ground_truth_points = self._resize_to_multiple_of_128(img_raw, ground_truth_points)
+        print(ground_truth_points[:5])
 
         if self.transform:
-            img_raw = self.transform(img_raw)
+            img_tensor = self.transform(img_raw)
         else:
             to_tensor = transforms.Compose([transforms.ToTensor()])
             img_tensor = to_tensor(img_raw)
@@ -332,10 +337,30 @@ class JHUData(Dataset):
 
         return img_tensor, target
 
+    def _resize_image_to_target_size(self, img: Image.Image, ground_truth_points: np.ndarray, target_size: tuple[int, int]) -> Image.Image:
+        width, height = img.size
+        print(width, height)
+        target_width, target_height = target_size
+        factor_width, factor_height = target_width / width, target_height / height
+        print(factor_width, factor_height)
+        img = img.resize((target_width, target_height), Image.Resampling.LANCZOS)
+        ground_truth_points = np.array([[x * factor_width, y * factor_height] for x, y in ground_truth_points])
+        return img, ground_truth_points
+
     def _resize_to_multiple_of_128(self, img: Image.Image, ground_truth_points: np.ndarray):
         width, height = img.size
-        new_width, new_height = max(128, (width // 128) * 128), max(128, (height // 128) * 128)
-        factor_width, factor_height = width / new_width, height / new_height
+        # height or width already a multiple of 128?
+        if width >= 128 and width // 128 == 0:
+            new_width = width
+        else: 
+            new_width = max(128, (width // 128) * 128)
+        
+        if height >= 128 and height // 128 == 0:
+            new_height = height
+        else:
+            new_height = max(128, (height // 128) * 128)
+        
+        factor_width, factor_height = new_width / width, new_height / height
         img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
         ground_truth_points_out = np.array([[x * factor_width, y * factor_height] for x, y in ground_truth_points])
         assert ground_truth_points_out.shape == ground_truth_points.shape
