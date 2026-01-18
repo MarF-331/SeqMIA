@@ -54,6 +54,38 @@ def ComputeMetric(labels, labels_onehot_softlabels, pre_vectors, metricFlag):
     return metrics
 
 
+def ComputeCrowdCountMetric(prediction_points: np.ndarray, prediction_confidences: np.ndarray, ground_truth_points: np.ndarray, metric_flag: str):
+    flag = metric_flag.strip().lower()
+
+    if flag == "count error":
+        gt_count = len(ground_truth_points)
+        predicted_count = len(prediction_points)
+        count_error = gt_count - predicted_count
+        return torch.tensor([count_error]).unsqueeze(1)
+    
+    if flag == "mean confidence":
+        mean_confidence = np.mean(prediction_confidences)
+        return torch.tensor([mean_confidence]).unsqueeze(1)
+    
+    if flag == "std confidence":
+        std_confidence = np.std(prediction_confidences)
+        return torch.tensor([std_confidence]).unsqueeze(1)
+    
+    if flag == "max confidence":
+        max_confidence = np.max(prediction_confidences)
+        return torch.tensor([max_confidence]).unsqueeze(1)
+    
+    if flag == "nap":
+        # TODO Implement nAP Metric
+        pass
+
+    if flag == "ap":
+        # TODO Implement AP Metric
+        pass
+
+    
+    
+
 def ComputeMultiMetric(labels, labels_onehot_softlabels, pre_vectors,
                        metricFlag):
     if metricFlag == 'loss&entropy':
