@@ -1,5 +1,12 @@
 import os
 import numpy as np
+import torchvision.transforms as transforms
+
+JHU_DATA_TRANSFORM = transforms.Compose([
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+])
+
 
 def load_ground_truth_points_from_path(ground_truth_path: str) -> np.ndarray:
     '''
