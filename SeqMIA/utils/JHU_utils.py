@@ -1,5 +1,6 @@
 import os
 import torch
+import pickle as pkl
 import numpy as np
 import torchvision.transforms as transforms
 
@@ -103,6 +104,34 @@ def split_jhu_data_into_density_bins(image_gt_pairs: list[tuple[str, np.ndarray]
             density_bins["super_high"].append((image_path, gt_points))
     
     return density_bins
+
+
+def save_split_to_pickle(save_path: str, **splits: list[tuple[str, np.ndarray]]) -> None:
+    '''
+    Saves the split information to a pickle file at the specified path.
+    
+    Args:
+        save_path (str): Path to save the pickle file.
+        **splits (list[tuple[str, np.ndarray]]): Keyword arguments where keys are split names and values are lists of image-ground truth point tuples.
+    '''
+    split_info = {key: value for key, value in splits.items()}
+    with open(save_path, 'wb') as f:
+        pkl.dump(split_info, f)
+    print(f"Saved split information to {save_path}")
+
+
+def load_split_from_pickle(load_path: str) -> dict[str, list[tuple[str, np.ndarray]]]:
+    '''
+    Loads the split information from a pickle file at the specified path.
+    
+    Args:
+        load_path (str): Path to the pickle file.
+    Returns:
+        dict[str,list[tuple[str, np.ndarray]]]: Dictionary with keys as split names and values as lists of image-ground truth point tuples.
+    '''
+    with open(load_path, 'rb') as f:
+        split_info = pkl.load(f)
+    return split_info
 
 
 def jhu_collate_fn(batch: list[tuple[torch.Tensor, list[dict[str, torch.Tensor]]]]) -> tuple[torch.Tensor, list[list[dict[str, torch.Tensor]]]]:
