@@ -303,10 +303,11 @@ class CIFARDataForDistill(Dataset):
 
 
 class JHUData(Dataset):
-    def __init__(self, image_data: list[tuple[str, np.ndarray]], transform :Callable[[Image.Image], Image.Image]=None, fixed_image_size: tuple[int, int]=(768, 640)):
+    def __init__(self, image_data: list[tuple[str, np.ndarray]], transform :Callable[[Image.Image], Image.Image]=None, fixed_image_size: tuple[int, int]=None, random_crop: int=None):
         self.image_data = sorted(image_data, key=lambda tup: os.path.basename(tup[0]))
         self.transform = transform
         self.fixed_image_size = fixed_image_size
+        self.random_crop = random_crop
     
     def __len__(self):
         return len(self.image_data)
@@ -314,7 +315,13 @@ class JHUData(Dataset):
     def __getitem__(self, index: int) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         image_path, ground_truth_points = self.image_data[index]
         img_raw = Image.open(image_path).convert("RGB")
-        img_raw, ground_truth_points = self._resize_image_to_target_size(img_raw, ground_truth_points, self.fixed_image_size)
+       
+        if self.fixed_image_size:
+            img_raw, ground_truth_points = self._resize_image_to_target_size(img_raw, ground_truth_points, self.fixed_image_size)
+        
+        if self.random_crop:
+            img_raw, ground_truth_points = self._random_crop_image(img_raw, ground_truth_points, self.random_crop)
+
         img_raw, ground_truth_points = self._resize_to_multiple_of_128(img_raw, ground_truth_points)
 
         if self.transform:
@@ -330,6 +337,31 @@ class JHUData(Dataset):
         }
 
         return img_tensor, target
+    
+    def _random_crop_image(self, img: Image.Image, ground_truth_points: np.ndarray, crop_size: int=128):
+        width, height = img.size
+        if width < crop_size or height < crop_size:
+            scale = crop_size / min(width, height)
+            img = img.resize((int(width * scale), int(height * scale)), Image.Resampling.LANCZOS)
+            ground_truth_points = ground_truth_points * scale
+            width, height = img.size
+        
+        left = np.random.randint(0, width - crop_size + 1)
+        upper = np.random.randint(0, height - crop_size + 1)
+        right = left + crop_size
+        lower = upper + crop_size
+        img = img.crop((left, upper, right, lower))
+
+        if ground_truth_points.shape[0] > 0:
+            mask = (ground_truth_points[:, 0] >= left) & (ground_truth_points[:, 0] <= right) & \
+                (ground_truth_points[:, 1] >= upper) & (ground_truth_points[:, 1] <= lower)
+            gt_points_cropped = ground_truth_points[mask].copy()
+            gt_points_cropped[:, 0] -= left
+            gt_points_cropped[:, 1] -= upper
+        else:
+            gt_points_cropped = np.zeros((0, 2))
+        
+        return img, gt_points_cropped
 
     def _resize_image_to_target_size(self, img: Image.Image, ground_truth_points: np.ndarray, target_size: tuple[int, int]) -> Image.Image:
         width, height = img.size
@@ -351,6 +383,9 @@ class JHUData(Dataset):
             new_height = height
         else:
             new_height = max(128, (height // 128) * 128)
+        
+        if new_height == height and new_width == width:
+            return img, ground_truth_points
         
         factor_width, factor_height = new_width / width, new_height / height
         img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)

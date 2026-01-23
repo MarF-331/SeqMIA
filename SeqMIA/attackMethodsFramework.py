@@ -32,6 +32,8 @@ from sklearn.preprocessing import MinMaxScaler
 import matplotlib.pyplot as plt
 import argparse
 
+from torch.utils.data import DataLoader
+from .utils.JHU_utils import jhu_collate_fn, JHU_DATA_TRANSFORM
 import mlflow
 import time
 import datetime
@@ -251,7 +253,9 @@ def trainTarget(modelType, X, y,
     return attack_x, attack_y, theModel, classification_y
 
 
-def train_p2p_next(model, criterion, dataloader_train, dataloader_val, device, args):
+def train_p2p_next(model, criterion, train_data: list[tuple[str, np.ndarray]], 
+                   val_data: list[tuple[str, np.ndarray]], device, args):
+    
     mlflow.set_experiment("Train P2P-NeXt for SEQMIA")
     logger.info(f"✔️  Checkpoint directory: {args.checkpoints_dir}")
     mae = []
@@ -285,6 +289,12 @@ def train_p2p_next(model, criterion, dataloader_train, dataloader_val, device, a
     optimizer = torch.optim.Adam(param_dicts, lr=args.lr)
     lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, args.lr_drop)
 
+    train_dataset = models.JHUData(train_data, JHU_DATA_TRANSFORM, random_crop=640)
+    val_dataset = models.JHUData(val_data, JHU_DATA_TRANSFORM)
+
+    train_loader = DataLoader(train_dataset, args.batch_size, shuffle=True, num_workers=args.num_workers, collate_fn=jhu_collate_fn)
+    val_loader = DataLoader(val_dataset, 1, shuffle=False, num_workers=args.num_workers, collate_fn=jhu_collate_fn)
+
     logger.info("🚀 Start training")
     start_time = time.time()
     mse = []
@@ -295,7 +305,7 @@ def train_p2p_next(model, criterion, dataloader_train, dataloader_val, device, a
         for epoch in range(args.start_epoch, args.epochs):
             logger.info(f"📈 Epoch number: {epoch}")
             t1 = time.time()
-            stat = train_one_epoch(model, criterion, dataloader_train,
+            stat = train_one_epoch(model, criterion, train_loader,
                                    optimizer, device,
                                    epoch, args.clip_max_norm)
 
@@ -313,7 +323,7 @@ def train_p2p_next(model, criterion, dataloader_train, dataloader_val, device, a
             if epoch % args.eval_freq == 0:
                 logger.info("🔍 Starting evaluation")
                 t1 = time.time()
-                result = evaluate_crowd_no_overlap(model, dataloader_val,
+                result = evaluate_crowd_no_overlap(model, val_loader,
                                                    device, epoch)
                 t2 = time.time()
 
