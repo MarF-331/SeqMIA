@@ -32,6 +32,18 @@ from sklearn.preprocessing import MinMaxScaler
 import matplotlib.pyplot as plt
 import argparse
 
+import mlflow
+import time
+import datetime
+import logging
+logger = logging.getLogger()
+
+current_dir = os.path.dirname(os.path.abspath(__file__))
+path_to_p2p_next = os.path.join(current_dir, "../P2PNeXt")
+sys.path.append(path_to_p2p_next)
+
+from P2PNeXt.train.engine import train_one_epoch, evaluate_crowd_no_overlap
+
 
 def load_data_for_trainortest(data_name):
     with np.load(data_name) as f:
@@ -237,6 +249,126 @@ def trainTarget(modelType, X, y,
                                                                         datasetFlag=datasetFlag)
 
     return attack_x, attack_y, theModel, classification_y
+
+
+def train_p2p_next(model, criterion, dataloader_train, dataloader_val, device, args):
+    mlflow.set_experiment("Train P2P-NeXt for SEQMIA")
+    logger.info(f"✔️  Checkpoint directory: {args.checkpoints_dir}")
+    mae = []
+
+    # Fix the seed for reproducibility
+    seed = args.seed
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.backends.cudnn.enabled = True
+    torch.backends.cudnn.benchmark = True
+    torch.backends.cudnn.deterministic = True
+
+    model.to(device)
+    criterion.to(device)
+
+    n_parameter = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    logger.info(f'🔢 Number of parameters: {n_parameter:,}')
+
+    # Setup optimizer and scheduler
+    param_dicts = [
+        {"params": [p for n, p in model.named_parameters()
+                    if "backbone" not in n and p.requires_grad]},
+        {
+            "params": [p for n, p in model.named_parameters()
+                       if "backbone" in n and p.requires_grad],
+            "lr": args.lr_backbone,
+        },
+    ]
+    optimizer = torch.optim.Adam(param_dicts, lr=args.lr)
+    lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, args.lr_drop)
+
+    logger.info("🚀 Start training")
+    start_time = time.time()
+    mse = []
+
+    with mlflow.start_run():
+        mlflow.set_tag("backbone model", args.mlflow_tag)
+        mlflow.log_params(vars(args))
+        for epoch in range(args.start_epoch, args.epochs):
+            logger.info(f"📈 Epoch number: {epoch}")
+            t1 = time.time()
+            stat = train_one_epoch(model, criterion, dataloader_train,
+                                   optimizer, device,
+                                   epoch, args.clip_max_norm)
+
+            mlflow.log_metric(key="loss", value=stat['loss'], step=epoch)
+            mlflow.log_metric(key="loss_ce", value=stat['loss_ce'], step=epoch)
+
+            t2 = time.time()
+            logger.info(
+                f'[Epoch {epoch}]'
+                f'[LR {optimizer.param_groups[0]["lr"]:.7f}]'
+                f'[{t2 - t1:.2f}s]'
+            )
+
+            # Run evaluation
+            if epoch % args.eval_freq == 0:
+                logger.info("🔍 Starting evaluation")
+                t1 = time.time()
+                result = evaluate_crowd_no_overlap(model, dataloader_val,
+                                                   device, epoch)
+                t2 = time.time()
+
+                mae.append(result[0])
+                mse.append(result[1])
+                # Clean output for evaluation results
+                logger.info("=== Evaluation Results ===")
+                logger.info(
+                    f"MAE: {result[0]:.4f} | "
+                    f"MSE: {result[1]:.4f} | "
+                    f"Time Taken: {t2 - t1:.2f}s | "
+                    f"Best MAE: {np.min(mae):.4f}"
+                )
+                logger.info("===========================")
+                # Record the evaluation results
+                mlflow.log_metric(key="mae", value=result[0], step=epoch)
+                mlflow.log_metric(key="mse", value=result[1], step=epoch)
+
+                # Save the best model since beginning
+                if (
+                    np.min(mae) > result[0] or
+                    abs(np.min(mae) - result[0])
+                    < 0.01
+                   ):
+                    checkpoint_best_path = os.path.join(args.checkpoints_dir,
+                                                        'best_mae.pth')
+                    torch.save({
+                        'model': model.state_dict(),
+                        'epoch': epoch + 1,
+                        'best_mae': result[0],
+                        'optimizer': optimizer.state_dict(),
+                        'lr_scheduler': lr_scheduler.state_dict()
+                    }, checkpoint_best_path)
+                    logger.info(
+                        f'🌟 New best epoch, model saved at: {checkpoint_best_path}'   # noqa: E501
+                    )
+                    mlflow.log_metric(key="best_mae", value=result[0],
+                                      step=epoch)
+                else:
+                    checkpoint_latest_path = os.path.join(args.checkpoints_dir,
+                                                          'latest.pth')
+                    torch.save({
+                        'model': model.state_dict(),
+                        'epoch': epoch + 1,
+                        'best_mae': np.min(mae),
+                        'optimizer': optimizer.state_dict(),
+                        'lr_scheduler': lr_scheduler.state_dict()
+                    }, checkpoint_latest_path)
+                    logger.info(f'📉 Worse MAE, model saved at: {args.checkpoints_dir}')   # noqa: E501
+
+    # Total time for training
+    total_time = time.time() - start_time
+    total_time_str = str(datetime.timedelta(seconds=int(total_time)))
+    logger.info(f'⏰ Training time: {total_time_str}')
+
 
 
 def train_attack_model_RNN(dataset, epochs=100, batch_size=100, learning_rate=0.01, l2_ratio=1e-7,

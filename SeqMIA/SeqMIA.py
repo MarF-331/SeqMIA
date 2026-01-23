@@ -80,7 +80,7 @@ def shuffleAndSplitDataByClass_distillation(dataX, dataY,cluster):
 
 def shuffleAndSplitJHUDataByDensity_distillation(image_gt_pairs: list[tuple[str, np.ndarray]], seed: int=1234) -> tuple[list[tuple[str, np.ndarray]]]:
     '''
-    Shuffles and splits the JHU dataset into 5 parts for target train/test, shadow train/test and distillation.
+    Shuffles and splits the JHU dataset into 7 parts for target train/val/test, shadow train/val/test and distillation.
     
     Args:
         image_gt_pairs (list[tuple[str,np.ndarray]]): List of tuples containing image paths and their corresponding ground truth points.
@@ -95,8 +95,8 @@ def shuffleAndSplitJHUDataByDensity_distillation(image_gt_pairs: list[tuple[str,
     
     toTrain: list[tuple[str, np.ndarray]] = []
     shadowTrain: list[tuple[str, np.ndarray]] = []
-    toTest: list[tuple[str, np.ndarray]] = []
-    shadowTest: list[tuple[str, np.ndarray]] = []
+    toTest_Val: list[tuple[str, np.ndarray]] = []
+    shadowTest_Val: list[tuple[str, np.ndarray]] = []
     distillation: list[tuple[str, np.ndarray]] = []
     n_splits = 5
 
@@ -108,19 +108,27 @@ def shuffleAndSplitJHUDataByDensity_distillation(image_gt_pairs: list[tuple[str,
         random.shuffle(data_in_bin)
         toTrain.extend(data_in_bin[0:split_size])
         shadowTrain.extend(data_in_bin[split_size:2*split_size])
-        toTest.extend(data_in_bin[2*split_size:3*split_size])
-        shadowTest.extend(data_in_bin[3*split_size:4*split_size])
+        toTest_Val.extend(data_in_bin[2*split_size:3*split_size])
+        shadowTest_Val.extend(data_in_bin[3*split_size:4*split_size])
         distillation.extend(data_in_bin[4*split_size:])
+    
+    # 50/50 split on target and shadow test/val set
+    toTest = toTest_Val[::2]
+    toVal = toTest_Val[1::2]
+    shadowTest = shadowTest_Val[::2]
+    shadowVal = shadowTest_Val[1::2]
     
     # final shuffle
     random.shuffle(toTrain)
     random.shuffle(shadowTrain)
+    random.shuffle(toVal)
+    random.shuffle(shadowVal)
     random.shuffle(toTest)
     random.shuffle(shadowTest)
     random.shuffle(distillation)
-    print(f"Final dataset sizes: toTrain={len(toTrain)}, shadow={len(shadowTrain)}, toTest={len(toTest)}, shadowTest={len(shadowTest)}, distillation={len(distillation)}")
+    print(f"Final dataset sizes: toTrain={len(toTrain)}, shadow={len(shadowTrain)}, toVal={len(toVal)}, shadowVal={len(shadowVal)}, toTest={len(toTest)}, shadowTest={len(shadowTest)}, distillation={len(distillation)}")
 
-    return toTrain, toTest, shadowTrain, shadowTest, distillation
+    return toTrain, toVal, toTest, shadowTrain, shadowVal, shadowTest, distillation
         
 
 def get_file_name(path):
