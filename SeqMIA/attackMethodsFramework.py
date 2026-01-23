@@ -289,7 +289,7 @@ def train_p2p_next(model, criterion, train_data: list[tuple[str, np.ndarray]],
     optimizer = torch.optim.Adam(param_dicts, lr=args.lr)
     lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, args.lr_drop)
 
-    train_dataset = models.JHUData(train_data, JHU_DATA_TRANSFORM, random_crop=640)
+    train_dataset = models.JHUData(train_data, JHU_DATA_TRANSFORM, random_crop=512)
     val_dataset = models.JHUData(val_data, JHU_DATA_TRANSFORM)
 
     train_loader = DataLoader(train_dataset, args.batch_size, shuffle=True, num_workers=args.num_workers, collate_fn=jhu_collate_fn)

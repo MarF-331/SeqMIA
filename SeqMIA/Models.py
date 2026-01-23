@@ -13,6 +13,7 @@ import math
 import os
 import sys
 import torch.nn.utils.rnn as rnn_utils
+import random
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 path_to_p2p_next = os.path.join(current_dir, "../P2PNeXt")
@@ -342,19 +343,22 @@ class JHUData(Dataset):
         width, height = img.size
         if width < crop_size or height < crop_size:
             scale = crop_size / min(width, height)
-            img = img.resize((int(width * scale), int(height * scale)), Image.Resampling.LANCZOS)
+            new_width = int(np.ceil(width * scale))
+            new_height = int(np.ceil(height * scale))
+            img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
             ground_truth_points = ground_truth_points * scale
-            width, height = img.size
+            width, height = new_width, new_height
         
-        left = np.random.randint(0, width - crop_size + 1)
-        upper = np.random.randint(0, height - crop_size + 1)
+        width, height = img.size
+        left = random.randint(0, width - crop_size)
+        upper = random.randint(0, height - crop_size)
         right = left + crop_size
         lower = upper + crop_size
         img = img.crop((left, upper, right, lower))
 
         if ground_truth_points.shape[0] > 0:
-            mask = (ground_truth_points[:, 0] >= left) & (ground_truth_points[:, 0] <= right) & \
-                (ground_truth_points[:, 1] >= upper) & (ground_truth_points[:, 1] <= lower)
+            mask = (ground_truth_points[:, 0] >= left) & (ground_truth_points[:, 0] < right) & \
+                (ground_truth_points[:, 1] >= upper) & (ground_truth_points[:, 1] < lower)
             gt_points_cropped = ground_truth_points[mask].copy()
             gt_points_cropped[:, 0] -= left
             gt_points_cropped[:, 1] -= upper
