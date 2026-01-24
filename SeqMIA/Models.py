@@ -304,7 +304,10 @@ class CIFARDataForDistill(Dataset):
 
 
 class JHUData(Dataset):
-    def __init__(self, image_data: list[tuple[str, np.ndarray]], transform :Callable[[Image.Image], Image.Image]=None, fixed_image_size: tuple[int, int]=None, random_crop: int=None):
+    def __init__(self, image_data: list[tuple[str, np.ndarray]], 
+                 transform :Callable[[Image.Image], Image.Image]=None, 
+                 fixed_image_size: tuple[int, int]=None, random_crop: int=None):
+        
         self.image_data = sorted(image_data, key=lambda tup: os.path.basename(tup[0]))
         self.transform = transform
         self.fixed_image_size = fixed_image_size
@@ -399,8 +402,11 @@ class JHUData(Dataset):
 
 
 class JHUDataForDistill(Dataset):
-    def __init__(self, image_data: list[tuple[str, np.ndarray]], soft_labels, transform :Callable[[Image.Image], Image.Image]=None):
-        self.data = JHUData(image_data, transform)
+    def __init__(self, image_data: list[tuple[str, np.ndarray]], soft_labels, 
+                 transform :Callable[[Image.Image], Image.Image]=None, 
+                 fixed_image_size: tuple[int, int]=None, random_crop: int=None):
+        
+        self.data = JHUData(image_data, transform, fixed_image_size, random_crop)
         self.soft_labels = soft_labels
     
     def __len__(self):
