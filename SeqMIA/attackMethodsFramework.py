@@ -33,6 +33,7 @@ import matplotlib.pyplot as plt
 import argparse
 
 from torch.utils.data import DataLoader
+import dataclasses
 from .utils.JHU_utils import jhu_collate_fn, JHU_DATA_TRANSFORM
 import mlflow
 import time
@@ -254,7 +255,7 @@ def trainTarget(modelType, X, y,
 
 
 def train_p2p_next(model, criterion, train_data: list[tuple[str, np.ndarray]], 
-                   val_data: list[tuple[str, np.ndarray]], device, args):
+                   val_data: list[tuple[str, np.ndarray]], device, args, model_args=None):
     
     mlflow.set_experiment("Train P2P-NeXt for SEQMIA")
     logger.info(f"✔️  Checkpoint directory: {args.checkpoints_dir}")
@@ -299,12 +300,15 @@ def train_p2p_next(model, criterion, train_data: list[tuple[str, np.ndarray]],
     start_time = time.time()
     mse = []
 
-    with mlflow.start_run():
+    with mlflow.start_run(run_name="target model training 1"):
         mlflow.set_tag("backbone model", args.mlflow_tag)
         mlflow.log_params(vars(args))
+        if model_args:
+            model_args_dict = dataclasses.asdict(model_args)
+            mlflow.log_dict(model_args_dict, "p2pnext_model_args.json")
         for epoch in range(args.start_epoch, args.epochs):
             logger.info(f"📈 Epoch number: {epoch}")
-            t1 = time.time()
+            t1 = time.time() 
             stat = train_one_epoch(model, criterion, train_loader,
                                    optimizer, device,
                                    epoch, args.clip_max_norm)
