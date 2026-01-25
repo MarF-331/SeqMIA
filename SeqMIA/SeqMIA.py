@@ -8,7 +8,7 @@ from . import Metrics as metr
 from . import readData as rd
 from sklearn.datasets import fetch_20newsgroups
 from sklearn.feature_extraction.text import TfidfVectorizer
-from .utils.JHU_utils import split_jhu_data_into_density_bins
+from .utils.JHU_utils import split_jhu_data_into_density_bins, JHU_DATA_TRANSFORM
 import torch.nn as nn
 from torch.optim.lr_scheduler import StepLR
 import os
@@ -541,6 +541,24 @@ def DistillModel(original_model,dataset,num_epoch,dataFolderPath= './data/',mode
                        n_hidden=128, datasetFlag=dataset, TargetOrShadow=TargetOrShadow)
     
     return modelPath
+
+
+def distill_p2p_next(model: torch.nn.Module, distill_image_data: list[tuple[str, np.ndarray]], 
+                     epochs: int=50, batch_size: int=1):
+    
+
+    # generate a JHUData instance and apply center crops
+    distill_dataset = models.JHUData(distill_image_data, JHU_DATA_TRANSFORM, center_crop=512)
+
+    # pass every image tensor trough P2PNeXt's inference routine
+    
+    # save every output inside a list. This list then contains the soft labels.
+
+    # create an instance of the JHUDataForDistill Dataset class by passing distill_image_data and the soft labels
+
+    # create a DataLoader by passing the JHUDataForDistill Dataset
+
+    
 
 def generateAttackDataForSeqMIA(dataset, classifierType, dataFolderPath ,pathToLoadData ,num_epoch ,preprocessData ,trainTargetModel ,trainShadowModel,topX=3, num_epoch_for_distillation=50,distillTargetModel=True, distillShadowModel=True, metricFlag='loss'):
     if(preprocessData):
