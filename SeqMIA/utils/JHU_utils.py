@@ -3,6 +3,7 @@ import torch
 import pickle as pkl
 import numpy as np
 import torchvision.transforms as transforms
+from typing import Any
 
 JHU_DATA_TRANSFORM = transforms.Compose([
     transforms.ToTensor(),
@@ -134,16 +135,16 @@ def load_split_from_pickle(load_path: str) -> dict[str, list[tuple[str, np.ndarr
     return split_info
 
 
-def jhu_collate_fn(batch: list[tuple[torch.Tensor, list[dict[str, torch.Tensor]]]]) -> tuple[torch.Tensor, list[list[dict[str, torch.Tensor]]]]:
+def jhu_collate_fn(batch: list[tuple[torch.Tensor, Any]]) -> tuple[torch.Tensor, list[Any]]:
     '''
     A collate function for JHU dataset to stack image tensors and aggregate targets.
     Images must be of the same size before using this collate function.
     
     Args:
-        batch (list[tuple[torch.Tensor,list[dict[str, torch.Tensor]]]]): List of tuples containing image tensors and their corresponding targets.
+        batch (list[tuple[torch.Tensor, Any]]): List of tuples containing image tensors and their corresponding targets.
     
     Returns:
-        tuple[torch.Tensor,list[list[dict[str,torch.Tensor]]]]: A tuple containing stacked image tensors and a list of targets.
+        tuple[torch.Tensor,list[Any]]: A tuple containing stacked image tensors and a list of targets.
     '''
     image_tensors_stacked = torch.stack([tensors for tensors, _ in batch])
     targets_stacked = [targets for _, targets in batch]

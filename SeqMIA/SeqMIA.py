@@ -8,7 +8,9 @@ from . import Metrics as metr
 from . import readData as rd
 from sklearn.datasets import fetch_20newsgroups
 from sklearn.feature_extraction.text import TfidfVectorizer
-from .utils.JHU_utils import split_jhu_data_into_density_bins, JHU_DATA_TRANSFORM
+from .utils.JHU_utils import split_jhu_data_into_density_bins, JHU_DATA_TRANSFORM, jhu_collate_fn
+from .utils.P2PNext_utils import process_p2pnext_output
+from tqdm import tqdm
 import torch.nn as nn
 from torch.optim.lr_scheduler import StepLR
 import os
@@ -543,23 +545,116 @@ def DistillModel(original_model,dataset,num_epoch,dataFolderPath= './data/',mode
     return modelPath
 
 
-def distill_p2p_next(model: torch.nn.Module, distill_image_data: list[tuple[str, np.ndarray]], 
-                     epochs: int=50, batch_size: int=1):
-    
+def extractSoftLabelsP2PNext(model: torch.nn.Module, distillation_dataloader: DataLoader, device=torch.device("cpu")):
+    model.eval()
+    model.to(device)
+    soft_labels: list[dict[str, torch.Tensor]] = []
 
-    # generate a JHUData instance and apply center crops
+    pbar = tqdm(distillation_dataloader, desc="Extracting Soft Labels", leave=False)
+    with torch.no_grad():
+        for sample, _ in pbar:
+            sample = sample.to(device)
+            output = model(sample)
+            
+            for i in range(distillation_dataloader.batch_size):
+                soft_labels.append({
+                    "pred_points": output["pred_points"][i].cpu(),
+                    "pred_logits": output["pred_logits"][i].cpu()
+                })
+
+    return soft_labels
+
+
+def getDistillationDataLoaderP2PNext(teacher: nn.Module, distill_image_data: list[tuple[str, np.ndarray]], 
+                                     batch_size: int=1, num_workers: int=4, 
+                                     device=torch.device("cpu")) -> DataLoader:
+    
     distill_dataset = models.JHUData(distill_image_data, JHU_DATA_TRANSFORM, center_crop=512)
-
-    # pass every image tensor trough P2PNeXt's inference routine
+    distill_dataloader = DataLoader(distill_dataset, 
+                                    batch_size=batch_size, 
+                                    num_workers=num_workers, 
+                                    shuffle=False, 
+                                    collate_fn=jhu_collate_fn)                                              
     
-    # save every output inside a list. This list then contains the soft labels.
-
-    # create an instance of the JHUDataForDistill Dataset class by passing distill_image_data and the soft labels
-
-    # create a DataLoader by passing the JHUDataForDistill Dataset
-
+    soft_labels = extractSoftLabelsP2PNext(teacher, distill_dataloader, device)
     
+    distill_data_with_soft_labels = models.JHUDataForDistill(distill_dataset, soft_labels)
+    distill_loader_with_soft_labels = DataLoader(distill_data_with_soft_labels,
+                                                 batch_size=batch_size, 
+                                                 shuffle=True, 
+                                                 num_workers=num_workers, 
+                                                 collate_fn=jhu_collate_fn)
+    
+    return distill_loader_with_soft_labels
 
+
+def distill_p2p_next(teacher: torch.nn.Module, distill_image_data: list[tuple[str, np.ndarray]], 
+                     args, device=torch.device("cpu")):
+    
+    seed = args.seed
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.backends.cudnn.enabled = True
+    torch.backends.cudnn.benchmark = True
+    torch.backends.cudnn.deterministic = True
+
+    os.makedirs(args.checkpoints_dir, exist_ok=True)
+    
+    teacher.eval()
+    teacher.to(device)
+
+    distill_loader_with_soft_labels = getDistillationDataLoaderP2PNext(teacher, 
+                                                                       distill_image_data, 
+                                                                       batch_size=args.batch_size, 
+                                                                       num_workers=args.num_workers, 
+                                                                       device=device)
+    
+    student = models.P2PNeXt(models.P2PNeXtStandardArgs, checkpoint_path=None).model
+    student.to(device)
+    student.train()
+
+    param_dicts = [
+        {"params": [p for n, p in student.named_parameters()
+                    if "backbone" not in n and p.requires_grad]},
+        {
+            "params": [p for n, p in student.named_parameters()
+                       if "backbone" in n and p.requires_grad],
+            "lr": args.lr_backbone,
+        },
+    ]
+    criterion = models.P2PNeXtDistillationLoss(point_loss_weight=args.point_loss_weight)
+    optimizer = torch.optim.Adam(param_dicts, lr=args.lr)
+
+    pbar = tqdm(distill_loader_with_soft_labels, desc="Distilling P2PNeXt", leave=True)
+    for epoch in range(args.epochs):
+        for samples, soft_labels in pbar:
+            samples = samples.to(device)
+            soft_labels = [{k: v.to(device) for k, v in sl.items()} for sl in soft_labels]
+            outputs = student(samples)
+            loss = criterion(outputs, soft_labels)
+            optimizer.zero_grad()
+            loss.backward()
+
+            if args.clip_max_norm > 0:
+                torch.nn.utils.clip_grad_norm_(student.parameters(), args.grad_clip_norm)
+
+            optimizer.step()
+            pbar.set_postfix({"loss": loss.item()})
+        
+        # save the student model after each epoch
+        student_save_path = os.path.join(args.checkpoints_dir, f'distilled_p2pnext_epoch_{epoch + 1}.pth')
+        torch.save({
+            "model": student.state_dict(),
+            "optimizer": optimizer.state_dict(),
+            "epoch": epoch + 1,
+        }, student_save_path)
+        pbar.set_postfix({"loss": loss.item()})
+    
+    print("Distilling finished!")
+    
+   
 def generateAttackDataForSeqMIA(dataset, classifierType, dataFolderPath ,pathToLoadData ,num_epoch ,preprocessData ,trainTargetModel ,trainShadowModel,topX=3, num_epoch_for_distillation=50,distillTargetModel=True, distillShadowModel=True, metricFlag='loss'):
     if(preprocessData):
         initializeDataIncludingDistillationData(dataset,pathToLoadData)

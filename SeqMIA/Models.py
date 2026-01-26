@@ -435,18 +435,59 @@ class JHUData(Dataset):
 
 
 class JHUDataForDistill(Dataset):
-    def __init__(self, image_data: list[tuple[str, np.ndarray]], soft_labels, 
-                 transform :Callable[[Image.Image], Image.Image]=None, 
-                 fixed_image_size: tuple[int, int]=None, random_crop: int=None):
-        
-        self.data = JHUData(image_data, transform, fixed_image_size, random_crop)
+    def __init__(self, image_data_set: JHUData, soft_labels: list[dict[str, torch.Tensor]]):
+        self.data = image_data_set
         self.soft_labels = soft_labels
     
     def __len__(self):
         return len(self.data)
     
-    def __getitem__(self, index):
-        img, target = self.data[index]
+    def __getitem__(self, index: int):
+        img, _ = self.data[index]
         soft_label = self.soft_labels[index]
         
-        return img, target, soft_label
+        return img, soft_label
+    
+
+class P2PNeXtDistillationLoss(nn.Module):
+    def __init__(self, point_loss_weight: float=1.0):
+        super().__init__()
+        self.point_loss_weigth = point_loss_weight
+    
+    def forward(self, student_output_raw: dict[str, torch.Tensor], soft_labels: list[dict[str, torch.Tensor]]):
+        '''
+        Compute the distillation loss between the student model's output and the soft labels.
+
+        Args:
+            student_output_raw (dict[str, torch.Tensor]): The raw output from the student model. Each tensor is of shape [batch_size, num_queries, 2].
+            soft_labels (list[dict[str, torch.Tensor]]): The soft labels obtained from the teacher model. Each index corresponds to a batch item and contains
+                - 'pred_points': Tensor of shape [num_queries, 2] with the predicted point coordinates from the teacher model.
+                - 'pred_logits': Tensor of shape [num_queries, 2] with the logits from the teacher model.
+        
+        Returns:
+            torch.Tensor: The computed distillation loss.
+        '''
+        batch_size = student_output_raw['pred_points'].shape[0]
+        device = student_output_raw['pred_points'].device
+        total_loss = 0.0
+
+        for i in range(batch_size):
+            student_points = student_output_raw['pred_points'][i]  # [num_queries, 2]
+            student_logits = student_output_raw['pred_logits'][i]  # [num_queries, 2]
+            teacher_points = soft_labels[i]['pred_points'].to(device)  # [num_queries, 2]
+            teacher_logits = soft_labels[i]['pred_logits'].to(device)  # [num_queries, 2]
+
+            # Compute confidence loss (KL divergence)
+            student_log_probs = F.log_softmax(student_logits, dim=-1)
+            teacher_probs = F.softmax(teacher_logits, dim=-1)
+            confidence_loss = F.kl_div(student_log_probs, teacher_probs, reduction='batchmean')
+
+            # Compute point loss (weighted L2 loss)
+            teacher_confidences = teacher_probs[:, 1].unsqueeze(-1)  # Confidence for the positive class
+            point_loss = (teacher_confidences * (student_points - teacher_points) ** 2).mean()
+
+            total_loss += self.point_loss_weigth * point_loss + confidence_loss
+
+            batch_loss = total_loss / batch_size
+
+        return batch_loss
