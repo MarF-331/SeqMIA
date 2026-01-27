@@ -550,8 +550,8 @@ def extractSoftLabelsP2PNext(model: torch.nn.Module, distillation_dataloader: Da
     model.to(device)
     soft_labels: list[dict[str, torch.Tensor]] = []
 
-    pbar = tqdm(distillation_dataloader, desc="Extracting Soft Labels", leave=False)
     with torch.no_grad():
+        pbar = tqdm(distillation_dataloader, desc="Extracting Soft Labels", leave=False)
         for sample, _ in pbar:
             sample = sample.to(device)
             output = model(sample)
@@ -627,8 +627,8 @@ def distill_p2p_next(teacher: torch.nn.Module, distill_image_data: list[tuple[st
     criterion = models.P2PNeXtDistillationLoss(point_loss_weight=args.point_loss_weight)
     optimizer = torch.optim.Adam(param_dicts, lr=args.lr)
 
-    pbar = tqdm(distill_loader_with_soft_labels, desc="Distilling P2PNeXt", leave=True)
     for epoch in range(args.epochs):
+        pbar = tqdm(distill_loader_with_soft_labels, desc=f"Distilling P2PNeXt | Epoch: {epoch + 1}/{args.epochs}", leave=True)
         for samples, soft_labels in pbar:
             samples = samples.to(device)
             soft_labels = [{k: v.to(device) for k, v in sl.items()} for sl in soft_labels]
@@ -638,7 +638,7 @@ def distill_p2p_next(teacher: torch.nn.Module, distill_image_data: list[tuple[st
             loss.backward()
 
             if args.clip_max_norm > 0:
-                torch.nn.utils.clip_grad_norm_(student.parameters(), args.grad_clip_norm)
+                torch.nn.utils.clip_grad_norm_(student.parameters(), args.clip_max_norm)
 
             optimizer.step()
             pbar.set_postfix({"loss": loss.item()})

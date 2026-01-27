@@ -256,8 +256,10 @@ class P2PNeXt(nn.Module):
     
     def _load_checkpoint(self, checkpoint_path: str) -> None:
         if os.path.exists(checkpoint_path):
+            print(f"Loading checkpoint at: {checkpoint_path}")
             checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
             self.model.load_state_dict(checkpoint['model'])
+            print(f"Checkpoint loaded!")
         else:
             print(f"Path was not found: {checkpoint_path}")
 
