@@ -340,10 +340,12 @@ class JHUData(Dataset):
         else:
             to_tensor = transforms.Compose([transforms.ToTensor()])
             img_tensor = to_tensor(img_raw)
+        
+        img_id = int(os.path.basename(image_path).split(".")[0])
 
         target = {
             "point": torch.tensor(ground_truth_points, dtype=torch.float32),
-            "image_id": torch.tensor([index], dtype=torch.long),
+            "image_id": torch.tensor([img_id], dtype=torch.long),
             "labels": torch.ones(ground_truth_points.shape[0], dtype=torch.long)
         }
 
