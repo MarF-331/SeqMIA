@@ -22,7 +22,10 @@ def ground_truth_count(target_points: np.ndarray) -> int:
     Returns:
         out (int): The actual number of people.
     '''
-    return target_points.shape[0]
+    if target_points.size == 0:
+        return 0
+    else:
+        return target_points.shape[0]
 
 
 def confidences_max(scores: np.ndarray) -> Any:
@@ -35,7 +38,10 @@ def confidences_max(scores: np.ndarray) -> Any:
     Returns:
         out: maximum score 
     '''
-    return np.max(scores, axis=0)
+    if scores.size == 0:
+        return 0.0
+    else:
+        return np.max(scores, axis=0)
 
 
 def confidences_mean(scores: np.ndarray) -> Any:
@@ -48,7 +54,10 @@ def confidences_mean(scores: np.ndarray) -> Any:
     Returns:
         out: mean score
     '''
-    return np.mean(scores, axis=0)
+    if scores.size == 0:
+        return 0.0
+    else:
+        return np.mean(scores, axis=0)
 
 
 def confidences_std(scores: np.ndarray) -> Any:
@@ -62,7 +71,10 @@ def confidences_std(scores: np.ndarray) -> Any:
         out: standard deviation score
     
     '''
-    return np.std(scores, axis=0)
+    if scores.size == 0:
+        return 0.0
+    else:
+        return np.std(scores, axis=0)
 
 
 def count_error(predicted_points: np.ndarray, target_points: np.ndarray) -> int:
@@ -140,7 +152,7 @@ class MetricTypes(Enum):
 
 
 def calculate(output_raw: dict[str, torch.Tensor], target: list[dict[str, torch.Tensor]], 
-              metric_types: list[MetricTypes], model_id: Optional[str]=None) -> list[dict[str, Any]]:
+              metric_types: list[MetricTypes], model_id: Optional[str]=None) -> dict[dict[str, Any]]:
     '''
     Calculate specified metrics based on the model output and target data.
     A list of MetricTypes must be provided to specify which metrics to calculate.

@@ -29,6 +29,10 @@ from sklearn.metrics import classification_report
 from sklearn.metrics import roc_auc_score
 from sklearn.metrics import roc_curve, auc
 from . import attackMethodsFramework as att_frame
+from .utils.P2PNeXtMetricsCalculator import MetricTypes, calculate
+from typing import Optional, Any
+import pandas as pd
+from tqdm import tqdm
 
 
 def createMetricSequences(targetX, targetY, num_metrics):
@@ -57,3 +61,46 @@ def createLossTrajectories_Seq(targetX, targetY, num_metrics):
         trajectory_data.append(torch.Tensor(oneTr))
 
     return trajectory_data
+
+
+def createMultiMetricSequenceP2PNeXt(models_and_ids: list[tuple[nn.Module, str]], 
+                                     dataloader: DataLoader, metric_types: list[MetricTypes], 
+                                     member: bool, device: torch.device=torch.device("cpu"), 
+                                     save_path: Optional[str]=None):
+    
+    multi_metric_dict: dict[dict[str, Any]] = {}
+    
+    pbar1 = tqdm(dataloader, desc="Creating Multi Metric Sequences", leave=True)
+    for feature, target in pbar1:
+        feature.to(device)
+        target = [{k: v.to(device) for k, v in t.items()} for t in target]
+        batch_metrics: dict[dict[str, Any]] = {}
+        batch_metrics_list: list[dict[dict[str, Any]]] = []
+        
+        for model, model_id in models_and_ids:
+            pbar1.set_postfix({"Model": model_id})
+            model.eval()
+            model.to(device)
+            with torch.no_grad():
+                output = model(feature)
+            
+            metrics = calculate(output, target, metric_types, model_id)
+            batch_metrics_list.append(metrics)
+        
+        for d in batch_metrics_list:
+            for key, val in d.items():
+                if key in batch_metrics:
+                    batch_metrics[key].update(val)
+                else:
+                    batch_metrics[key] = val.copy()
+        
+        multi_metric_dict.update(batch_metrics)
+            
+
+    df = pd.DataFrame.from_dict(multi_metric_dict, orient='index')
+    df['member'] = int(member)
+    if save_path is not None:
+        df.to_csv(save_path)
+    return df
+        
+                
