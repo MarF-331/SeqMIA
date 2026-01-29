@@ -72,7 +72,7 @@ def createMultiMetricSequenceP2PNeXt(models_and_ids: list[tuple[nn.Module, str]]
     
     pbar1 = tqdm(dataloader, desc="Creating Multi Metric Sequences", leave=True)
     for feature, target in pbar1:
-        feature.to(device)
+        feature = feature.to(device)
         target = [{k: v.to(device) for k, v in t.items()} for t in target]
         batch_metrics: dict[dict[str, Any]] = {}
         batch_metrics_list: list[dict[dict[str, Any]]] = []

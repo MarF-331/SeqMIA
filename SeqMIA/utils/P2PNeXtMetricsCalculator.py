@@ -174,8 +174,8 @@ def calculate(output_raw: dict[str, torch.Tensor], target: list[dict[str, torch.
 
     for batch_idx in range(batch_size):
         current_pred_points, current_pred_scores = processed_output[batch_idx]
-        current_target_points = target[batch_idx]["point"].numpy()
-        current_image_id = target[batch_idx]["image_id"].item()
+        current_target_points = target[batch_idx]["point"].cpu().numpy()
+        current_image_id = target[batch_idx]["image_id"].cpu().item()
         current_image_metrics: dict = {}
         for metric_type in metric_types:
             match metric_type:

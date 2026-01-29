@@ -39,12 +39,12 @@ def _match_predictions_to_ground_truths_for_nap(prediction_points: np.ndarray, g
     tp = np.zeros(len(prediction_points))
     fp = np.zeros(len(prediction_points))
 
-    if gt_points.shape == 0:
-        if not prediction_points.shape == 0:
+    if len(gt_points) == 0:
+        if len(prediction_points) > 0:
             fp[:] = 1
             return tp, fp
     
-    if prediction_points.shape == 0:
+    if len(prediction_points) == 0:
         return tp, fp
     
     k = min(k, len(gt_points) - 1)
@@ -55,11 +55,16 @@ def _match_predictions_to_ground_truths_for_nap(prediction_points: np.ndarray, g
         d_knn = np.mean(k_nn_distances[:, 1:], axis=1)
     else:
         d_knn = np.full(len(gt_points), 100.0)
+        
+    if len(d_knn) > 0:
+        search_radius = np.max(d_knn) * threshold
+    else:
+        search_radius = 0.0
 
     for i, pred_point in enumerate(prediction_points):
         min_dist = float('inf')
         best_gt_index = -1
-        gt_idx = kd_tree.query_ball_point(pred_point, r=np.max(d_knn) * threshold)
+        gt_idx = kd_tree.query_ball_point(pred_point, r=search_radius)
 
         for j in gt_idx:
             if matched[j]:
