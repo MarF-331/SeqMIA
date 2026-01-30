@@ -18,8 +18,8 @@ def prepare_dataframes(root: str) -> tuple[pd.DataFrame, pd.DataFrame]:
     Returns:
         out (tuple[DataFrame, DataFrame]): The first DataFrame contains training data. The second DataFrame contains testing data.
     '''
-    csv_file_names = [f for f in os.listdir(ATTACK_DATA_ROOT_PATH) if f.endswith(".csv")]
-    csv_file_paths = [os.path.join(ATTACK_DATA_ROOT_PATH, f) for f in csv_file_names]
+    csv_file_names = [f for f in os.listdir(root) if f.endswith(".csv")]
+    csv_file_paths = [os.path.join(root, f) for f in csv_file_names]
     dataframes = {os.path.basename(p).split(".")[0]: pd.read_csv(p, index_col=0) for p in csv_file_paths}
     train_dataframe = pd.concat([dataframes[k] for k in dataframes.keys() 
                                  if k.startswith("shadow")], axis=0)
