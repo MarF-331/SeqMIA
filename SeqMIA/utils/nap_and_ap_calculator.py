@@ -21,8 +21,8 @@ def _sort_outputs_by_confidence_scores(predicted_points: np.ndarray, confidence_
     Second the sorted confidence scores of the predicted points.
     '''
     
-    if predicted_points.size == 0:
-        return np.array([]), np.array([])
+    if len(predicted_points) == 0:
+        return predicted_points, confidence_scores
         
     idx = np.argsort(confidence_scores)[::-1]
     
@@ -54,7 +54,7 @@ def _match_predictions_to_ground_truths_for_nap(prediction_points: np.ndarray, g
         k_nn_distances, _ = kd_tree.query(gt_points, k=k+1)
         d_knn = np.mean(k_nn_distances[:, 1:], axis=1)
     else:
-        d_knn = np.full(len(gt_points), 100.0)
+        d_knn = np.full(len(gt_points), float("inf"))
         
     if len(d_knn) > 0:
         search_radius = np.max(d_knn) * threshold
