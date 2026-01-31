@@ -269,6 +269,18 @@ class P2PNeXt(nn.Module):
 
     def forward(self, x):
         return self.model(x)
+
+
+class AttackRNNP2PNeXt(nn.Module):
+    def __init__(self, input_size: int, hidden_size: int, num_layers: int=1):
+        super(AttackRNNP2PNeXt, self).__init__()
+        self.rnn = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True)
+        self.fc = nn.Linear(hidden_size, 1)
+    
+    def forward(self, x):
+        _, (hn, _) = self.rnn(x)
+        out = self.fc(hn[-1])
+        return out
     
 
 class CIFARData(Dataset):
@@ -353,7 +365,7 @@ class JHUData(Dataset):
     
     def _center_crop_image(self, img: Image.Image, ground_truth_points: np.ndarray, crop_size: int=128) -> tuple[Image.Image, np.ndarray]:
         
-        img, ground_truth_points = self._scale_image_for_crop(img, ground_truth_points, crop_size)
+        img, ground_truth_points = self._pad_image_for_crop(img, ground_truth_points, crop_size)
         width, height = img.size
 
         left = (width - crop_size) // 2
@@ -368,7 +380,7 @@ class JHUData(Dataset):
     
     def _random_crop_image(self, img: Image.Image, ground_truth_points: np.ndarray, crop_size: int=128):
 
-        img, ground_truth_points = self._scale_image_for_crop(img, ground_truth_points, crop_size)
+        img, ground_truth_points = self._pad_image_for_crop(img, ground_truth_points, crop_size)
         
         width, height = img.size
         left = random.randint(0, width - crop_size)
@@ -435,6 +447,27 @@ class JHUData(Dataset):
             img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
             ground_truth_points = ground_truth_points * scale
 
+        return img, ground_truth_points
+    
+    def _pad_image_for_crop(self, img: Image.Image, ground_truth_points: np.ndarray,
+                            target_crop_size: int=128) -> tuple[Image.Image, np.ndarray]:
+        
+        width, height = img.size
+        if width < target_crop_size or height < target_crop_size:
+            new_width = max(width, target_crop_size)
+            new_height = max(height, target_crop_size)
+            new_img = Image.new("RGB", (new_width, new_height), (0, 0, 0))
+
+            pad_left = (new_width - width) // 2
+            pad_top = (new_height - height) // 2
+            new_img.paste(img, (pad_left, pad_top))
+            img = new_img
+            if ground_truth_points.shape[0] > 0:
+                ground_truth_points_padded = ground_truth_points.copy()
+                ground_truth_points_padded[:, 0] += pad_left
+                ground_truth_points_padded[:, 1] += pad_top
+                ground_truth_points = ground_truth_points_padded
+        
         return img, ground_truth_points
 
 
