@@ -50,7 +50,7 @@ def getDistillationDataLoaderP2PNext(teacher: nn.Module, distill_image_data: lis
     return distill_loader_with_soft_labels
 
 
-def load_distillation_models(distill_models_dir: str, model_args):
+def load_distillation_models(distill_models_dir: str, model_type: str, model_args):
     if not os.path.exists(distill_models_dir):
         raise FileNotFoundError(f"Distillation Models Directory not found: {distill_models_dir}")
     else:
@@ -60,7 +60,7 @@ def load_distillation_models(distill_models_dir: str, model_args):
         else:
             distill_paths = [os.path.join(distill_models_dir, f) for f in distill_file_names]
             distill_models = [P2PNeXt(model_args, checkpoint_path=p) for p in distill_paths]
-            distill_model_ids = [m.epoch if not m.epoch is None else m.checkpoint_path for m in distill_models]
+            distill_model_ids = [f"{model_type}_{m.epoch}" if not m.epoch is None else f"{model_type}_{m.checkpoint_path}" for m in distill_models]
             distill_model_and_ids = list(zip(distill_models, distill_model_ids))
 
             return distill_model_and_ids
