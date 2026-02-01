@@ -8,10 +8,11 @@ from . import Metrics as metr
 from . import readData as rd
 from sklearn.datasets import fetch_20newsgroups
 from sklearn.feature_extraction.text import TfidfVectorizer
-from .utils.JHU_utils import split_jhu_data_into_density_bins, JHU_DATA_TRANSFORM, jhu_collate_fn, save_split_to_pickle
+from .utils.JHU_utils import split_jhu_data_into_density_bins, JHU_DATA_TRANSFORM, jhu_collate_fn, save_split_to_pickle, load_split_from_pickle
 from .readData import readJHU
 from .utils.P2PNext_utils import process_p2pnext_output
 from .utils.P2PNeXtMetricsCalculator import calculate, MetricTypes
+from .utils.distillation_utils import getDistillationDataLoaderP2PNext, load_distillation_models
 from .MetricSequence import createMultiMetricSequenceP2PNeXt
 from tqdm import tqdm
 import pandas as pd
@@ -400,23 +401,34 @@ def createAttackDataWithMetrics(dataset,dataFolderPath= './data/',modelFolderPat
 
 def create_attack_data_p2pnext(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    jhu = readJHU(args.data_root)
-    jhu_split = shuffleAndSplitJHUDataByDensity_distillation(jhu, seed=args.seed)
+    
+    # Phase 1: Get the JHU Data Split for SeqMIA
+    if args.run_data_split:
+        print("Phase 1: Create new JHU Data Split")
+        jhu = readJHU(args.data_root)
+        jhu_split = shuffleAndSplitJHUDataByDensity_distillation(jhu, seed=args.seed)
+    
+        if args.save_split_path:
+            save_split_to_pickle(args.save_split_path, target_train=jhu_split[0], 
+                                 target_val=jhu_split[1], target_test=jhu_split[2],
+                                 shadow_train=jhu_split[3], shadow_val=jhu_split[4],
+                                 shadow_test=jhu_split[5], distillation=jhu_split[6])
+            print(f"JHU Data Split saved to {args.save_split_path}")
+        else:
+            print(f"Path for saving JHU Data Split not found: {args.save_split_path}")
+    else:
+        print(f"Phase 1: Loading JHU Data Split from file {args.save_split_path}")
+        if not os.path.exists(args.save_split_path):
+            raise FileNotFoundError(f"Path for loading JHU Data Split not found: {args.save_split_path}")
+        else:
+            jhu_split = load_split_from_pickle(args.save_split_path)
+    
     target_train, target_val, target_test, shadow_train, shadow_val, shadow_test, distillation = \
         jhu_split
-    if not args.save_split_path is None:
-        save_split_to_pickle(args.save_split_path,
-                             target_train=jhu_split[0],
-                             target_val=jhu_split[1],
-                             target_test=jhu_split[2],
-                             shadow_train=jhu_split[3],
-                             shadow_val=jhu_split[4],
-                             shadow_test=jhu_split[5],
-                             distillation=jhu_split[6])
-    
-    # 1. Train the target model on target_train data
-    # or load if checkpoint already exists
+
+    # Phase 2: Target Teacher Model training
     if args.train_target:
+        print("Phase 2: Training Target Teacher model.")
         target = models.P2PNeXt(args, checkpoint_path=None)
         target_model = target.model
         target_criterion = target.criterion
@@ -424,94 +436,114 @@ def create_attack_data_p2pnext(args):
         target = models.P2PNeXt(args, 
                                 checkpoint_path=os.path.join(args.target_checkpoints_dir, "best_mae.pth"))
     else:
-        target = models.P2PNeXt(args, checkpoint_path=args.target_checkpoint)
+        print("Phase 2: Loading Target Teacher Model")
+        if not os.path.exists(args.target_checkpoint):
+            raise FileNotFoundError(f"Target Teacher Checkpoint not found at: {args.target_checkpoint}")
+        else:
+            target = models.P2PNeXt(args, checkpoint_path=args.target_checkpoint)
 
-    # 2. Train the shadow model on shadow_train data
-    # or load if checkpoint already exists
+    # Phase 3: Shadow Teacher Model training
     if args.train_shadow:
+        print("Phase 3: Training Shadow Teacher Model")
         shadow = models.P2PNeXt(args, checkpoint_path=None)
         shadow_model = shadow.model
         shadow_criterion = shadow.criterion
         att_frame.train_p2p_next(shadow_model, shadow_criterion, shadow_train, shadow_val, device, args)
         shadow = models.P2PNeXt(args,
                                 checkpoint_path=os.path.join(args.shadow_checkpoints_dir, "best_mae.pth"))
-    
     else:
-        shadow = models.P2PNeXt(args, checkpoint_path=args.shadow_checkpoint)
+        print("Phase 3: Loading Shadow Teacher Model")
+        if not os.path.exists(args.shadow_checkpoint):
+            raise FileNotFoundError(f"Shadow Teacher Checkpoint not found at: {args.shadow_checkpoint}")
+        else:
+            shadow = models.P2PNeXt(args, checkpoint_path=args.shadow_checkpoint)
     
-    # 3. Model Distillation with target as the teacher
+    # Phase 4: Model Distillation
     if args.distill_target:
+        print("Phase 4: Distilling Target")
         distill_p2p_next(target, distillation, args, device)
+    else:
+        print("Phase 4: Skipping Target Distillation")
 
-    # 4. Model Distillation with shadow as the teacher
     if args.distill_shadow:
+        print("Phase 4: Distilling Shadow")
         distill_p2p_next(shadow, distillation, args, device)
+    else:
+        print("Phase 4: Skipping Shadow Distillation")
     
-    # 5. Load all distilled models from target teacher
-    # and give every model an id
-    target_distill_file_names = sorted([f for f in os.listdir(args.target_distill_dir) if f.endswith(".pth")])
-    target_distill_paths = [os.path.join(args.target_distill_dir, f) for f in target_distill_file_names]
-    target_distill_models = [models.P2PNeXt(args, checkpoint_path=p) for p in target_distill_paths]
-    target_distill_model_ids = [m.epoch if not m.epoch is None else m.checkpoint_path for m in target_distill_models]
-    target_distill_model_and_ids = list(zip(target_distill_models, target_distill_model_ids))
+    print("Phase 4: Loading distilled models")
+    target_distill_models_and_ids = load_distillation_models(args.target_distill_dir, 
+                                                             model_type="target",
+                                                             model_args=args)
+    target_distill_models_and_ids.append((target, "target_original"))
 
-    # 6. Load all distilled models from shadow teacher
-    # and give every model an id
-    shadow_distill_file_names = sorted([f for f in os.listdir(args.shadow_distill_dir) if f.endswith(".pth")])
-    shadow_distill_paths = [os.path.join(args.shadow_distill_dir, f) for f in shadow_distill_file_names]
-    shadow_distill_models = [models.P2PNeXt(args, checkpoint_path=p) for p in shadow_distill_paths]
-    shadow_distill_model_ids = [m.epoch if not m.epoch is None else m.checkpoint_path for m in shadow_distill_models]
-    shadow_distill_model_and_ids = list(zip(shadow_distill_models, shadow_distill_model_ids))
+    shadow_distill_models_and_ids = load_distillation_models(args.shadow_distill_dir,
+                                                             model_type="shadow",
+                                                             model_args=args)
+    shadow_distill_models_and_ids.append((shadow, "shadow_original"))
+    
+    # Phase 5: Calculate Metrics on all models
+    if args.calculate_metrics:
+        print("Phase 5: Calculating metrics on all models")
+        target_member_set = models.JHUData(target_train, JHU_DATA_TRANSFORM, center_crop=2560)
+        target_member_loader = DataLoader(target_member_set, args.batch_size, 
+                                        shuffle=False, collate_fn=jhu_collate_fn)
+        
+        target_non_member_data = target_val + target_test
+        target_non_member_set = models.JHUData(target_non_member_data, JHU_DATA_TRANSFORM, center_crop=2560)
+        target_non_member_loader = DataLoader(target_non_member_set, args.batch_size, 
+                                            shuffle=False, collate_fn=jhu_collate_fn)
+        
+        shadow_member_set = models.JHUData(shadow_train, JHU_DATA_TRANSFORM, center_crop=2560)
+        shadow_member_loader = DataLoader(shadow_member_set, args.batch_size,
+                                        shuffle=False, collate_fn=jhu_collate_fn)
+        
+        shadow_non_member_data = shadow_val + shadow_test
+        shadow_non_member_set = models.JHUData(shadow_non_member_data, JHU_DATA_TRANSFORM, center_crop=2560)
+        shadow_non_member_loader = DataLoader(shadow_non_member_set, args.batch_size,
+                                            shuffle=False, collate_fn=jhu_collate_fn)
+    
+        my_metrics = [
+            MetricTypes.CountError,
+            MetricTypes.MaxConfidence,
+            MetricTypes.MeanConfidence,
+            MetricTypes.StandardDerivationConfidence,
+            MetricTypes.NAP_K4_T05,
+            MetricTypes.NAP_K4_T01,
+            MetricTypes.AP_16,
+            MetricTypes.AP_8
+        ]
 
-    # 7. Extract metrics from all target distilled models and from target teacher model
+        df_target_member = createMultiMetricSequenceP2PNeXt(target_distill_models_and_ids, 
+                                                            target_member_loader, my_metrics, 
+                                                            1, device, args.target_member_csv_path)
+        
+        df_target_non_member = createMultiMetricSequenceP2PNeXt(target_distill_models_and_ids, 
+                                                                target_non_member_loader, my_metrics,
+                                                                0, device, args.target_non_member_csv_path)
+        
+        df_shadow_member = createMultiMetricSequenceP2PNeXt(shadow_distill_models_and_ids,
+                                                            shadow_member_loader, my_metrics,
+                                                            1, device, args.shadow_member_csv_path)
+        
+        df_shadow_non_member = createMultiMetricSequenceP2PNeXt(shadow_distill_models_and_ids,
+                                                        shadow_non_member_loader, my_metrics,
+                                                        0, device, args.shadow_non_member_csv_path)
+    else:
+        print("Phase 5: Loading .csv files with metrics")
+        expected_csv_paths = [args.target_member_csv_path, args.target_non_member_csv_path,
+                              args.shadow_member_csv_path, args.shadow_non_member_csv_path]
+        for csv_path in expected_csv_paths:
+            if not os.path.exists(csv_path):
+                raise FileNotFoundError(f"CSV File not found: {csv_path}")
+        
+        df_target_member = pd.read_csv(args.target_member_csv_path)
+        df_target_non_member = pd.read_csv(args.target_non_member_csv_path)
+        df_shadow_member = pd.read_csv(args.shadow_member_csv_path)
+        df_shadow_non_member = pd.read_csv(args.shadow_non_member_csv_path)
 
-    ## 7.1 Create Member and Non-Member data for target and shadow models
-    target_member_set = models.JHUData(target_train, JHU_DATA_TRANSFORM, center_crop=2560)
-    target_member_loader = DataLoader(target_member_set, args.batch_size, 
-                                     shuffle=False, collate_fn=jhu_collate_fn)
-    
-    target_non_member_data = target_val + target_test
-    target_non_member_set = models.JHUData(target_non_member_data, JHU_DATA_TRANSFORM, center_crop=2560)
-    target_non_member_loader = DataLoader(target_non_member_set, args.batch_size, 
-                                          shuffle=False, collate_fn=jhu_collate_fn)
-    
-    shadow_member_set = models.JHUData(shadow_train, JHU_DATA_TRANSFORM, center_crop=2560)
-    shadow_member_loader = DataLoader(shadow_member_set, args.batch_size,
-                                      shuffle=False, collate_fn=jhu_collate_fn)
-    
-    shadow_non_member_data = shadow_val + shadow_test
-    shadow_non_member_set = models.JHUData(shadow_non_member_data, JHU_DATA_TRANSFORM, center_crop=2560)
-    shadow_non_member_loader = DataLoader(shadow_non_member_set, args.batch_size,
-                                          shuffle=False, collate_fn=jhu_collate_fn)
-    
-    ## 7.2 Extract metrics
-    my_metrics = [
-        MetricTypes.CountError,
-        MetricTypes.MaxConfidence,
-        MetricTypes.MeanConfidence,
-        MetricTypes.StandardDerivationConfidence,
-        MetricTypes.NAP_K4_T05,
-        MetricTypes.NAP_K4_T01,
-        MetricTypes.AP_16,
-        MetricTypes.AP_8
-    ]
-
-    df_target_member = createMultiMetricSequenceP2PNeXt(target_distill_model_and_ids, 
-                                                        target_member_loader, my_metrics, 
-                                                        1, device, args.target_member_csv_path)
-    
-    df_target_non_member = createMultiMetricSequenceP2PNeXt(target_distill_model_and_ids, 
-                                                            target_non_member_loader, my_metrics,
-                                                            0, device, args.target_non_member_csv_path)
-    
-    df_shadow_member = createMultiMetricSequenceP2PNeXt(shadow_distill_model_and_ids,
-                                                        shadow_member_loader, my_metrics,
-                                                        1, device, args.shadow_member_csv_path)
-    
-    df_shadow_non_member = create_attack_data_p2pnext(shadow_distill_model_and_ids,
-                                                      shadow_non_member_loader, my_metrics,
-                                                      0, device, args.shadow_non_member_csv_path)
-    
+    # Phase 6: Creating Attack Dataset
+    print("Phase 6: Creating Attack Dataset")
     df_train = pd.concat([df_shadow_member, df_target_non_member], axis=0)
     df_test = pd.concat([df_target_member, df_shadow_non_member], axis=0)
     
@@ -525,8 +557,9 @@ def create_attack_data_p2pnext(args):
     X_train_scaled = scaler.fit_transform(X_train)
     X_test_scaled = scaler.transform(X_test)
 
-    if not args.scaler_save_path is None:
+    if args.scaler_save_path:
         joblib.dump(scaler, args.scaler_save_path)
+        print(f"Phase 6: Standard Scaler saved at {args.scaler_save_path}")
 
     X_train_reshaped = X_train_scaled.reshape(-1, args.distill_epochs, len(my_metrics))
     X_test_reshaped = X_test_scaled.reshape(-1, args.distill_epochs, len(my_metrics))
@@ -547,6 +580,7 @@ def create_attack_data_p2pnext(args):
     dataloader_test = DataLoader(dataset_test,
                                  batch_size=args.batch_size,
                                  shuffle=False)
+    print("Attack Data generated!")
 
     return dataloader_train, dataloader_test
 
@@ -703,49 +737,6 @@ def DistillModel(original_model,dataset,num_epoch,dataFolderPath= './data/',mode
                        n_hidden=128, datasetFlag=dataset, TargetOrShadow=TargetOrShadow)
     
     return modelPath
-
-
-def extractSoftLabelsP2PNext(model: torch.nn.Module, distillation_dataloader: DataLoader, device=torch.device("cpu")):
-    model.eval()
-    model.to(device)
-    soft_labels: list[dict[str, torch.Tensor]] = []
-
-    with torch.no_grad():
-        pbar = tqdm(distillation_dataloader, desc="Extracting Soft Labels", leave=False)
-        for sample, _ in pbar:
-            sample = sample.to(device)
-            output = model(sample)
-            
-            for i in range(distillation_dataloader.batch_size):
-                soft_labels.append({
-                    "pred_points": output["pred_points"][i].cpu(),
-                    "pred_logits": output["pred_logits"][i].cpu()
-                })
-
-    return soft_labels
-
-
-def getDistillationDataLoaderP2PNext(teacher: nn.Module, distill_image_data: list[tuple[str, np.ndarray]], 
-                                     batch_size: int=1, num_workers: int=4, 
-                                     device=torch.device("cpu")) -> DataLoader:
-    
-    distill_dataset = models.JHUData(distill_image_data, JHU_DATA_TRANSFORM, center_crop=512)
-    distill_dataloader = DataLoader(distill_dataset, 
-                                    batch_size=batch_size, 
-                                    num_workers=num_workers, 
-                                    shuffle=False, 
-                                    collate_fn=jhu_collate_fn)                                              
-    
-    soft_labels = extractSoftLabelsP2PNext(teacher, distill_dataloader, device)
-    
-    distill_data_with_soft_labels = models.JHUDataForDistill(distill_dataset, soft_labels)
-    distill_loader_with_soft_labels = DataLoader(distill_data_with_soft_labels,
-                                                 batch_size=batch_size, 
-                                                 shuffle=True, 
-                                                 num_workers=num_workers, 
-                                                 collate_fn=jhu_collate_fn)
-    
-    return distill_loader_with_soft_labels
 
 
 def distill_p2p_next(teacher: torch.nn.Module, distill_image_data: list[tuple[str, np.ndarray]], 
