@@ -561,8 +561,16 @@ def create_attack_data_p2pnext(args):
         joblib.dump(scaler, args.scaler_save_path)
         print(f"Phase 6: Standard Scaler saved at {args.scaler_save_path}")
 
-    X_train_reshaped = X_train_scaled.reshape(-1, args.distill_epochs, len(my_metrics))
-    X_test_reshaped = X_test_scaled.reshape(-1, args.distill_epochs, len(my_metrics))
+    total_columns = X_test_scaled.shape[1]
+    total_metrics = len(my_metrics)
+
+    if total_columns % total_metrics != 0:
+        raise ValueError(f"Feature dimension {total_columns} is not divisible by number of metrics {total_metrics}")
+    else:
+        sequence_length = total_columns // total_metrics
+
+    X_train_reshaped = X_train_scaled.reshape(-1, sequence_length, total_metrics)
+    X_test_reshaped = X_test_scaled.reshape(-1, sequence_length, total_metrics)
 
     X_train_tensor = torch.tensor(X_train_reshaped, dtype=torch.float32)
     X_test_tensor = torch.tensor(X_test_reshaped, dtype=torch.float32)
