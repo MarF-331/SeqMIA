@@ -2,7 +2,7 @@ import torch
 from . import attackMethodsFramework as att_frame
 import numpy as np
 from . import Models as models
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, TensorDataset
 import torch.nn.functional as F
 from . import Metrics as metr
 from . import readData as rd
@@ -14,6 +14,9 @@ from .utils.P2PNext_utils import process_p2pnext_output
 from .utils.P2PNeXtMetricsCalculator import calculate, MetricTypes
 from .MetricSequence import createMultiMetricSequenceP2PNeXt
 from tqdm import tqdm
+import pandas as pd
+from sklearn.preprocessing import StandardScaler
+import joblib
 import torch.nn as nn
 from torch.optim.lr_scheduler import StepLR
 import os
@@ -509,9 +512,43 @@ def create_attack_data_p2pnext(args):
                                                       shadow_non_member_loader, my_metrics,
                                                       0, device, args.shadow_non_member_csv_path)
     
-    #TODO: Maybe add here Dataframe preprocessing for RNN and then return the dataloaders
+    df_train = pd.concat([df_shadow_member, df_target_non_member], axis=0)
+    df_test = pd.concat([df_target_member, df_shadow_non_member], axis=0)
     
-    return df_shadow_member, df_shadow_non_member, df_target_member, df_shadow_non_member
+    X_train = df_train.drop("member", axis=1).values
+    y_train = df_train["member"].values
+
+    X_test = df_test.drop("member", axis=1).values
+    y_test = df_test["member"].values
+
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_test_scaled = scaler.transform(X_test)
+
+    if not args.scaler_save_path is None:
+        joblib.dump(scaler, args.scaler_save_path)
+
+    X_train_reshaped = X_train_scaled.reshape(-1, args.distill_epochs, len(my_metrics))
+    X_test_reshaped = X_test_scaled.reshape(-1, args.distill_epochs, len(my_metrics))
+
+    X_train_tensor = torch.tensor(X_train_reshaped, dtype=torch.float32)
+    X_test_tensor = torch.tensor(X_test_reshaped, dtype=torch.float32)
+
+    y_train_tensor = torch.tensor(y_train, dtype=torch.float32).unsqueeze(1)
+    y_test_tensor = torch.tensor(y_test, dtype=torch.float32).unsqueeze(1)
+
+    dataset_train = TensorDataset(X_train_tensor, y_train_tensor)
+    dataset_test = TensorDataset(X_test_tensor, y_test_tensor)
+
+    dataloader_train = DataLoader(dataset_train,
+                                  batch_size=args.batch_size,
+                                  shuffle=True)
+    
+    dataloader_test = DataLoader(dataset_test,
+                                 batch_size=args.batch_size,
+                                 shuffle=False)
+
+    return dataloader_train, dataloader_test
 
 
 
@@ -750,7 +787,7 @@ def distill_p2p_next(teacher: torch.nn.Module, distill_image_data: list[tuple[st
     criterion = models.P2PNeXtDistillationLoss(point_loss_weight=args.point_loss_weight)
     optimizer = torch.optim.Adam(param_dicts, lr=args.lr)
 
-    for epoch in range(args.epochs):
+    for epoch in range(args.distill_epochs):
         pbar = tqdm(distill_loader_with_soft_labels, desc=f"Distilling P2PNeXt | Epoch: {epoch + 1}/{args.epochs}", leave=True)
         for samples, soft_labels in pbar:
             samples = samples.to(device)
