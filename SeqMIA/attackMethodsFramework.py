@@ -305,6 +305,8 @@ def train_p2p_next(model, criterion, train_data: list[tuple[str, np.ndarray]],
             model.load_state_dict(checkpoint["model"])
             optimizer.load_state_dict(checkpoint["optimizer"])
             lr_scheduler.load_state_dict(checkpoint["lr_scheduler"])
+            best_mae = checkpoint["best_mae"]
+            mae.append(best_mae)
             args.start_epoch = checkpoint["epoch"]
 
     logger.info("🚀 Start training")
