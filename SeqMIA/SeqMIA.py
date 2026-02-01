@@ -8,8 +8,11 @@ from . import Metrics as metr
 from . import readData as rd
 from sklearn.datasets import fetch_20newsgroups
 from sklearn.feature_extraction.text import TfidfVectorizer
-from .utils.JHU_utils import split_jhu_data_into_density_bins, JHU_DATA_TRANSFORM, jhu_collate_fn
+from .utils.JHU_utils import split_jhu_data_into_density_bins, JHU_DATA_TRANSFORM, jhu_collate_fn, save_split_to_pickle
+from .readData import readJHU
 from .utils.P2PNext_utils import process_p2pnext_output
+from .utils.P2PNeXtMetricsCalculator import calculate, MetricTypes
+from .MetricSequence import createMultiMetricSequenceP2PNeXt
 from tqdm import tqdm
 import torch.nn as nn
 from torch.optim.lr_scheduler import StepLR
@@ -390,6 +393,126 @@ def createAttackDataWithMetrics(dataset,dataFolderPath= './data/',modelFolderPat
 
 
     return attack_x, attack_y, classification_y, losses
+
+
+def create_attack_data_p2pnext(args):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    jhu = readJHU(args.data_root)
+    jhu_split = shuffleAndSplitJHUDataByDensity_distillation(jhu, seed=args.seed)
+    target_train, target_val, target_test, shadow_train, shadow_val, shadow_test, distillation = \
+        jhu_split
+    if not args.save_split_path is None:
+        save_split_to_pickle(args.save_split_path,
+                             target_train=jhu_split[0],
+                             target_val=jhu_split[1],
+                             target_test=jhu_split[2],
+                             shadow_train=jhu_split[3],
+                             shadow_val=jhu_split[4],
+                             shadow_test=jhu_split[5],
+                             distillation=jhu_split[6])
+    
+    # 1. Train the target model on target_train data
+    # or load if checkpoint already exists
+    if args.train_target:
+        target = models.P2PNeXt(args, checkpoint_path=None)
+        target_model = target.model
+        target_criterion = target.criterion
+        att_frame.train_p2p_next(target_model, target_criterion, target_train, target_val, device, args)
+        target = models.P2PNeXt(args, 
+                                checkpoint_path=os.path.join(args.target_checkpoints_dir, "best_mae.pth"))
+    else:
+        target = models.P2PNeXt(args, checkpoint_path=args.target_checkpoint)
+
+    # 2. Train the shadow model on shadow_train data
+    # or load if checkpoint already exists
+    if args.train_shadow:
+        shadow = models.P2PNeXt(args, checkpoint_path=None)
+        shadow_model = shadow.model
+        shadow_criterion = shadow.criterion
+        att_frame.train_p2p_next(shadow_model, shadow_criterion, shadow_train, shadow_val, device, args)
+        shadow = models.P2PNeXt(args,
+                                checkpoint_path=os.path.join(args.shadow_checkpoints_dir, "best_mae.pth"))
+    
+    else:
+        shadow = models.P2PNeXt(args, checkpoint_path=args.shadow_checkpoint)
+    
+    # 3. Model Distillation with target as the teacher
+    if args.distill_target:
+        distill_p2p_next(target, distillation, args, device)
+
+    # 4. Model Distillation with shadow as the teacher
+    if args.distill_shadow:
+        distill_p2p_next(shadow, distillation, args, device)
+    
+    # 5. Load all distilled models from target teacher
+    # and give every model an id
+    target_distill_file_names = sorted([f for f in os.listdir(args.target_distill_dir) if f.endswith(".pth")])
+    target_distill_paths = [os.path.join(args.target_distill_dir, f) for f in target_distill_file_names]
+    target_distill_models = [models.P2PNeXt(args, checkpoint_path=p) for p in target_distill_paths]
+    target_distill_model_ids = [m.epoch if not m.epoch is None else m.checkpoint_path for m in target_distill_models]
+    target_distill_model_and_ids = list(zip(target_distill_models, target_distill_model_ids))
+
+    # 6. Load all distilled models from shadow teacher
+    # and give every model an id
+    shadow_distill_file_names = sorted([f for f in os.listdir(args.shadow_distill_dir) if f.endswith(".pth")])
+    shadow_distill_paths = [os.path.join(args.shadow_distill_dir, f) for f in shadow_distill_file_names]
+    shadow_distill_models = [models.P2PNeXt(args, checkpoint_path=p) for p in shadow_distill_paths]
+    shadow_distill_model_ids = [m.epoch if not m.epoch is None else m.checkpoint_path for m in shadow_distill_models]
+    shadow_distill_model_and_ids = list(zip(shadow_distill_models, shadow_distill_model_ids))
+
+    # 7. Extract metrics from all target distilled models and from target teacher model
+
+    ## 7.1 Create Member and Non-Member data for target and shadow models
+    target_member_set = models.JHUData(target_train, JHU_DATA_TRANSFORM, center_crop=2560)
+    target_member_loader = DataLoader(target_member_set, args.batch_size, 
+                                     shuffle=False, collate_fn=jhu_collate_fn)
+    
+    target_non_member_data = target_val + target_test
+    target_non_member_set = models.JHUData(target_non_member_data, JHU_DATA_TRANSFORM, center_crop=2560)
+    target_non_member_loader = DataLoader(target_non_member_set, args.batch_size, 
+                                          shuffle=False, collate_fn=jhu_collate_fn)
+    
+    shadow_member_set = models.JHUData(shadow_train, JHU_DATA_TRANSFORM, center_crop=2560)
+    shadow_member_loader = DataLoader(shadow_member_set, args.batch_size,
+                                      shuffle=False, collate_fn=jhu_collate_fn)
+    
+    shadow_non_member_data = shadow_val + shadow_test
+    shadow_non_member_set = models.JHUData(shadow_non_member_data, JHU_DATA_TRANSFORM, center_crop=2560)
+    shadow_non_member_loader = DataLoader(shadow_non_member_set, args.batch_size,
+                                          shuffle=False, collate_fn=jhu_collate_fn)
+    
+    ## 7.2 Extract metrics
+    my_metrics = [
+        MetricTypes.CountError,
+        MetricTypes.MaxConfidence,
+        MetricTypes.MeanConfidence,
+        MetricTypes.StandardDerivationConfidence,
+        MetricTypes.NAP_K4_T05,
+        MetricTypes.NAP_K4_T01,
+        MetricTypes.AP_16,
+        MetricTypes.AP_8
+    ]
+
+    df_target_member = createMultiMetricSequenceP2PNeXt(target_distill_model_and_ids, 
+                                                        target_member_loader, my_metrics, 
+                                                        1, device, args.target_member_csv_path)
+    
+    df_target_non_member = createMultiMetricSequenceP2PNeXt(target_distill_model_and_ids, 
+                                                            target_non_member_loader, my_metrics,
+                                                            0, device, args.target_non_member_csv_path)
+    
+    df_shadow_member = createMultiMetricSequenceP2PNeXt(shadow_distill_model_and_ids,
+                                                        shadow_member_loader, my_metrics,
+                                                        1, device, args.shadow_member_csv_path)
+    
+    df_shadow_non_member = create_attack_data_p2pnext(shadow_distill_model_and_ids,
+                                                      shadow_non_member_loader, my_metrics,
+                                                      0, device, args.shadow_non_member_csv_path)
+    
+    #TODO: Maybe add here Dataframe preprocessing for RNN and then return the dataloaders
+    
+    return df_shadow_member, df_shadow_non_member, df_target_member, df_shadow_non_member
+
 
 
 def distill_original_model(modelPath, original_model, modelType, distill_dataset, epochs=100, batch_size=100, learning_rate=0.01, l2_ratio=1e-7,

@@ -247,6 +247,8 @@ class P2PNeXt(nn.Module):
         super(P2PNeXt, self).__init__()
         self.args = args
         self.model, self.criterion = self._build_model()
+        self.epoch: int | None = None
+        self.checkpoint_path: str | None = checkpoint_path
         if checkpoint_path:
             self._load_checkpoint(checkpoint_path)
         
@@ -259,6 +261,9 @@ class P2PNeXt(nn.Module):
             print(f"Loading checkpoint at: {checkpoint_path}")
             checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
             self.model.load_state_dict(checkpoint['model'])
+            if not checkpoint.get("epoch") is None:
+                self.epoch = checkpoint["epoch"]
+            self.checkpoint_path = checkpoint_path
             print(f"Checkpoint loaded!")
         else:
             print(f"Path was not found: {checkpoint_path}")

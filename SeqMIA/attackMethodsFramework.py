@@ -290,17 +290,28 @@ def train_p2p_next(model, criterion, train_data: list[tuple[str, np.ndarray]],
     optimizer = torch.optim.Adam(param_dicts, lr=args.lr)
     lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, args.lr_drop)
 
-    train_dataset = models.JHUData(train_data, JHU_DATA_TRANSFORM, random_crop=512)
+    train_dataset = models.JHUData(train_data, JHU_DATA_TRANSFORM, random_crop=args.crop_size)
     val_dataset = models.JHUData(val_data, JHU_DATA_TRANSFORM)
 
     train_loader = DataLoader(train_dataset, args.batch_size, shuffle=True, num_workers=args.num_workers, collate_fn=jhu_collate_fn)
     val_loader = DataLoader(val_dataset, 1, shuffle=False, num_workers=args.num_workers, collate_fn=jhu_collate_fn)
 
+    if args.resume:
+        resume_path = os.path.join(args.checkpoints_dir, "latest.pth")
+        if os.path.exists(resume_path):
+            logger.info(f"🔄 Resuming training from checkpoint {resume_path}")
+            checkpoint = torch.load(resume_path, map_location=device)
+
+            model.load_state_dict(checkpoint["model"])
+            optimizer.load_state_dict(checkpoint["optimizer"])
+            lr_scheduler.load_state_dict(checkpoint["lr_scheduler"])
+            args.start_epoch = checkpoint["epoch"]
+
     logger.info("🚀 Start training")
     start_time = time.time()
     mse = []
 
-    with mlflow.start_run(run_name="target model training 1"):
+    with mlflow.start_run(run_name=args.run_name):
         mlflow.set_tag("backbone model", args.mlflow_tag)
         mlflow.log_params(vars(args))
         if model_args:
@@ -312,6 +323,8 @@ def train_p2p_next(model, criterion, train_data: list[tuple[str, np.ndarray]],
             stat = train_one_epoch(model, criterion, train_loader,
                                    optimizer, device,
                                    epoch, args.clip_max_norm)
+            
+            lr_scheduler.step()
 
             mlflow.log_metric(key="loss", value=stat['loss'], step=epoch)
             mlflow.log_metric(key="loss_ce", value=stat['loss_ce'], step=epoch)
@@ -322,6 +335,17 @@ def train_p2p_next(model, criterion, train_data: list[tuple[str, np.ndarray]],
                 f'[LR {optimizer.param_groups[0]["lr"]:.7f}]'
                 f'[{t2 - t1:.2f}s]'
             )
+
+            checkpoint_latest_path = os.path.join(args.checkpoints_dir,
+                                                          'latest.pth')
+            torch.save({
+                'model': model.state_dict(),
+                'epoch': epoch + 1,
+                'best_mae': np.min(mae) if len(mae) > 0 else 999999.9999,
+                'optimizer': optimizer.state_dict(),
+                'lr_scheduler': lr_scheduler.state_dict()
+                }, checkpoint_latest_path)
+            logger.info(f'Epoch {epoch + 1} finished! Model saved at: {checkpoint_latest_path}')
 
             # Run evaluation
             if epoch % args.eval_freq == 0:
@@ -366,18 +390,7 @@ def train_p2p_next(model, criterion, train_data: list[tuple[str, np.ndarray]],
                     )
                     mlflow.log_metric(key="best_mae", value=result[0],
                                       step=epoch)
-                else:
-                    checkpoint_latest_path = os.path.join(args.checkpoints_dir,
-                                                          'latest.pth')
-                    torch.save({
-                        'model': model.state_dict(),
-                        'epoch': epoch + 1,
-                        'best_mae': np.min(mae),
-                        'optimizer': optimizer.state_dict(),
-                        'lr_scheduler': lr_scheduler.state_dict()
-                    }, checkpoint_latest_path)
-                    logger.info(f'📉 Worse MAE, model saved at: {args.checkpoints_dir}')   # noqa: E501
-
+                
     # Total time for training
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
