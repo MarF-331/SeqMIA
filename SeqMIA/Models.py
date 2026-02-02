@@ -509,25 +509,27 @@ class P2PNeXtDistillationLoss(nn.Module):
         Returns:
             torch.Tensor: The computed distillation loss.
         '''
+        batch_size = student_output_raw['pred_points'].shape[0]
         device = student_output_raw['pred_points'].device
+        total_loss = 0.0
 
-        student_points = student_output_raw["pred_points"] # [B, num_queries, 2]
-        student_logits = student_output_raw["pred_logits"] # [B, num_queries, 2]
+        for i in range(batch_size):
+            student_points = student_output_raw['pred_points'][i]  # [num_queries, 2]
+            student_logits = student_output_raw['pred_logits'][i]  # [num_queries, 2]
+            teacher_points = soft_labels[i]['pred_points'].to(device)  # [num_queries, 2]
+            teacher_logits = soft_labels[i]['pred_logits'].to(device)  # [num_queries, 2]
 
-        teacher_points = torch.stack([sl["pred_points"] for sl in soft_labels]).to(device)
-        teacher_logits = torch.stack([sl["pred_logits"] for sl in soft_labels]).to(device)
+            # Compute confidence loss (KL divergence)
+            student_log_probs = F.log_softmax(student_logits, dim=-1)
+            teacher_probs = F.softmax(teacher_logits, dim=-1)
+            confidence_loss = F.kl_div(student_log_probs, teacher_probs, reduction='batchmean')
 
-        # KL Divergence Loss
-        student_log_probs = F.log_softmax(student_logits, dim=-1)
-        teacher_probs = F.softmax(teacher_logits, dim=-1)
-        confidence_loss = F.kl_div(student_log_probs, teacher_probs, reduction="batchmean")
+            # Compute point loss (weighted L2 loss)
+            teacher_confidences = teacher_probs[:, 1].unsqueeze(-1)  # Confidence for the positive class
+            point_loss = (teacher_confidences * (student_points - teacher_points) ** 2).mean()
 
-        # Point Loss
-        teacher_confidences = teacher_probs[:, :, 1].unsqueeze(-1)
-        sq_diff = (student_points - teacher_points) ** 2
-        weighted_sq_diff = teacher_confidences * sq_diff
-        point_loss = weighted_sq_diff.mean()
+            total_loss += self.point_loss_weight * point_loss + confidence_loss
 
-        total_loss = self.point_loss_weight * point_loss + confidence_loss
+            batch_loss = total_loss / batch_size
 
-        return total_loss
+        return batch_loss

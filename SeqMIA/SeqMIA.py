@@ -497,28 +497,38 @@ def create_attack_data_p2pnext(args):
     if args.calculate_metrics:
         print("Phase 5: Calculating metrics on all models")
         target_member_set = models.JHUData(target_train, JHU_DATA_TRANSFORM)
-        target_member_loader = DataLoader(target_member_set, batch_size=1, shuffle=False)
+
+        target_member_loader = DataLoader(target_member_set, batch_size=1, shuffle=False, collate_fn=jhu_collate_fn)
         
         target_non_member_data = target_val + target_test
         target_non_member_set = models.JHUData(target_non_member_data, JHU_DATA_TRANSFORM)
-        target_non_member_loader = DataLoader(target_non_member_set, batch_size=1, shuffle=False)
+        target_non_member_loader = DataLoader(target_non_member_set, batch_size=1, shuffle=False, collate_fn=jhu_collate_fn)
         
         shadow_member_set = models.JHUData(shadow_train, JHU_DATA_TRANSFORM)
-        shadow_member_loader = DataLoader(shadow_member_set, batch_size=1, shuffle=False)
+        shadow_member_loader = DataLoader(shadow_member_set, batch_size=1, shuffle=False, collate_fn=jhu_collate_fn)
         
         shadow_non_member_data = shadow_val + shadow_test
         shadow_non_member_set = models.JHUData(shadow_non_member_data, JHU_DATA_TRANSFORM)
-        shadow_non_member_loader = DataLoader(shadow_non_member_set, batch_size=1, shuffle=False)
+        shadow_non_member_loader = DataLoader(shadow_non_member_set, batch_size=1, shuffle=False, collate_fn=jhu_collate_fn)
     
         my_metrics = [
             MetricTypes.CountError,
             MetricTypes.MaxConfidence,
+            MetricTypes.MinConfidence,
             MetricTypes.MeanConfidence,
             MetricTypes.StandardDerivationConfidence,
-            MetricTypes.NAP_K4_T05,
-            MetricTypes.NAP_K4_T01,
+            MetricTypes.ConfidencesOver99,
+            MetricTypes.ConfidencesOver95,
+            MetricTypes.ConfidencesOver90,
+            MetricTypes.GroundTruthCount,
+            MetricTypes.NAP_K3_T001,
+            MetricTypes.NAP_K3_T005,
+            MetricTypes.NAP_K3_T05,
+            MetricTypes.NAP_K3_T01,
             MetricTypes.AP_16,
-            MetricTypes.AP_8
+            MetricTypes.AP_8,
+            MetricTypes.AP_4,
+            MetricTypes.AP_2
         ]
 
         df_target_member = createMultiMetricSequenceP2PNeXt(target_distill_models_and_ids, 
@@ -551,8 +561,8 @@ def create_attack_data_p2pnext(args):
 
     # Phase 6: Creating Attack Dataset
     print("Phase 6: Creating Attack Dataset")
-    df_train = pd.concat([df_shadow_member, df_target_non_member], axis=0)
-    df_test = pd.concat([df_target_member, df_shadow_non_member], axis=0)
+    df_train = pd.concat([df_shadow_member, df_shadow_non_member], axis=0)
+    df_test = pd.concat([df_target_member, df_target_non_member], axis=0)
     
     X_train = df_train.drop("member", axis=1).values
     y_train = df_train["member"].values

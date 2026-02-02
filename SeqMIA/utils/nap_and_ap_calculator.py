@@ -95,12 +95,12 @@ def _match_predictions_to_ground_truths_for_ap(prediction_points: np.ndarray, gt
     tp = np.zeros(len(prediction_points))
     fp = np.zeros(len(prediction_points))
 
-    if gt_points.shape == 0:
-        if not prediction_points.shape == 0:
+    if len(gt_points) == 0:
+        if len(prediction_points) > 0:
             fp[:] = 1
             return tp, fp
     
-    if prediction_points.shape == 0:
+    if len(prediction_points) == 0:
         return tp, fp
     
     kd_tree = KDTree(gt_points)
