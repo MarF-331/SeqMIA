@@ -432,7 +432,8 @@ def create_attack_data_p2pnext(args):
         target = models.P2PNeXt(args, checkpoint_path=None)
         target_model = target.model
         target_criterion = target.criterion
-        att_frame.train_p2p_next(target_model, target_criterion, target_train, target_val, device, args)
+        att_frame.train_p2p_next(target_model, target_criterion, target_train, target_val, 
+                                 device, args, args.target_checkpoints_dir)
         target = models.P2PNeXt(args, 
                                 checkpoint_path=os.path.join(args.target_checkpoints_dir, "best_mae.pth"))
     else:
@@ -448,7 +449,8 @@ def create_attack_data_p2pnext(args):
         shadow = models.P2PNeXt(args, checkpoint_path=None)
         shadow_model = shadow.model
         shadow_criterion = shadow.criterion
-        att_frame.train_p2p_next(shadow_model, shadow_criterion, shadow_train, shadow_val, device, args)
+        att_frame.train_p2p_next(shadow_model, shadow_criterion, shadow_train, shadow_val, 
+                                 device, args, args.shadow_checkpoints_dir)
         shadow = models.P2PNeXt(args,
                                 checkpoint_path=os.path.join(args.shadow_checkpoints_dir, "best_mae.pth"))
     else:
@@ -461,13 +463,13 @@ def create_attack_data_p2pnext(args):
     # Phase 4: Model Distillation
     if args.distill_target:
         print("Phase 4: Distilling Target")
-        distill_p2p_next(target, distillation, args, device)
+        distill_p2p_next(target, distillation, args, args.target_distill_dir, device)
     else:
         print("Phase 4: Skipping Target Distillation")
 
     if args.distill_shadow:
         print("Phase 4: Distilling Shadow")
-        distill_p2p_next(shadow, distillation, args, device)
+        distill_p2p_next(shadow, distillation, args, args.shadow_distill_dir, device)
     else:
         print("Phase 4: Skipping Shadow Distillation")
     
@@ -748,7 +750,7 @@ def DistillModel(original_model,dataset,num_epoch,dataFolderPath= './data/',mode
 
 
 def distill_p2p_next(teacher: torch.nn.Module, distill_image_data: list[tuple[str, np.ndarray]], 
-                     args, device=torch.device("cpu")):
+                     args, save_directory: str, device=torch.device("cpu")):
     
     seed = args.seed
     random.seed(seed)
@@ -759,7 +761,7 @@ def distill_p2p_next(teacher: torch.nn.Module, distill_image_data: list[tuple[st
     torch.backends.cudnn.benchmark = True
     torch.backends.cudnn.deterministic = True
 
-    os.makedirs(args.checkpoints_dir, exist_ok=True)
+    os.makedirs(save_directory, exist_ok=True)
     
     teacher.eval()
     teacher.to(device)
@@ -787,7 +789,7 @@ def distill_p2p_next(teacher: torch.nn.Module, distill_image_data: list[tuple[st
     optimizer = torch.optim.Adam(param_dicts, lr=args.lr)
 
     for epoch in range(args.distill_epochs):
-        pbar = tqdm(distill_loader_with_soft_labels, desc=f"Distilling P2PNeXt | Epoch: {epoch + 1}/{args.epochs}", leave=True)
+        pbar = tqdm(distill_loader_with_soft_labels, desc=f"Distilling P2PNeXt | Epoch: {epoch + 1}/{args.distill_epochs}", leave=True)
         for samples, soft_labels in pbar:
             samples = samples.to(device)
             soft_labels = [{k: v.to(device) for k, v in sl.items()} for sl in soft_labels]
@@ -803,7 +805,7 @@ def distill_p2p_next(teacher: torch.nn.Module, distill_image_data: list[tuple[st
             pbar.set_postfix({"loss": loss.item()})
         
         # save the student model after each epoch
-        student_save_path = os.path.join(args.checkpoints_dir, f'distilled_p2pnext_epoch_{epoch + 1}.pth')
+        student_save_path = os.path.join(save_directory, f'distilled_p2pnext_epoch_{epoch + 1}.pth')
         torch.save({
             "model": student.state_dict(),
             "optimizer": optimizer.state_dict(),

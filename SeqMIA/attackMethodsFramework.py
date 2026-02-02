@@ -255,10 +255,11 @@ def trainTarget(modelType, X, y,
 
 
 def train_p2p_next(model, criterion, train_data: list[tuple[str, np.ndarray]], 
-                   val_data: list[tuple[str, np.ndarray]], device, args, model_args=None):
+                   val_data: list[tuple[str, np.ndarray]], device, 
+                   args, save_directory: str):
     
     mlflow.set_experiment("Train P2P-NeXt for SEQMIA")
-    logger.info(f"✔️  Checkpoint directory: {args.checkpoints_dir}")
+    logger.info(f"✔️  Checkpoint directory: {save_directory}")
     mae = []
 
     # Fix the seed for reproducibility
@@ -297,7 +298,7 @@ def train_p2p_next(model, criterion, train_data: list[tuple[str, np.ndarray]],
     val_loader = DataLoader(val_dataset, 1, shuffle=False, num_workers=args.num_workers, collate_fn=jhu_collate_fn)
 
     if args.resume:
-        resume_path = os.path.join(args.checkpoints_dir, "latest.pth")
+        resume_path = os.path.join(save_directory, "latest.pth")
         if os.path.exists(resume_path):
             logger.info(f"🔄 Resuming training from checkpoint {resume_path}")
             checkpoint = torch.load(resume_path, map_location=device)
@@ -316,9 +317,6 @@ def train_p2p_next(model, criterion, train_data: list[tuple[str, np.ndarray]],
     with mlflow.start_run(run_name=args.run_name):
         mlflow.set_tag("backbone model", args.mlflow_tag)
         mlflow.log_params(vars(args))
-        if model_args:
-            model_args_dict = dataclasses.asdict(model_args)
-            mlflow.log_dict(model_args_dict, "p2pnext_model_args.json")
         for epoch in range(args.start_epoch, args.epochs):
             logger.info(f"📈 Epoch number: {epoch}")
             t1 = time.time() 
@@ -338,8 +336,7 @@ def train_p2p_next(model, criterion, train_data: list[tuple[str, np.ndarray]],
                 f'[{t2 - t1:.2f}s]'
             )
 
-            checkpoint_latest_path = os.path.join(args.checkpoints_dir,
-                                                          'latest.pth')
+            checkpoint_latest_path = os.path.join(save_directory, 'latest.pth')
             torch.save({
                 'model': model.state_dict(),
                 'epoch': epoch + 1,
@@ -378,8 +375,7 @@ def train_p2p_next(model, criterion, train_data: list[tuple[str, np.ndarray]],
                     abs(np.min(mae) - result[0])
                     < 0.01
                    ):
-                    checkpoint_best_path = os.path.join(args.checkpoints_dir,
-                                                        'best_mae.pth')
+                    checkpoint_best_path = os.path.join(save_directory, 'best_mae.pth')
                     torch.save({
                         'model': model.state_dict(),
                         'epoch': epoch + 1,
