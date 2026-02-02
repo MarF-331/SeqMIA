@@ -407,12 +407,15 @@ def create_attack_data_p2pnext(args):
         print("Phase 1: Create new JHU Data Split")
         jhu = readJHU(args.data_root)
         jhu_split = shuffleAndSplitJHUDataByDensity_distillation(jhu, seed=args.seed)
+
+        target_train, target_val, target_test, shadow_train, shadow_val, shadow_test, distillation = \
+            jhu_split
     
         if args.save_split_path:
             save_split_to_pickle(args.save_split_path, target_train=jhu_split[0], 
                                  target_val=jhu_split[1], target_test=jhu_split[2],
                                  shadow_train=jhu_split[3], shadow_val=jhu_split[4],
-                                 shadow_test=jhu_split[5], distillation=jhu_split[6])
+                                 shadow_test=jhu_split[5], destillation=jhu_split[6])
             print(f"JHU Data Split saved to {args.save_split_path}")
         else:
             print(f"Path for saving JHU Data Split not found: {args.save_split_path}")
@@ -422,9 +425,15 @@ def create_attack_data_p2pnext(args):
             raise FileNotFoundError(f"Path for loading JHU Data Split not found: {args.save_split_path}")
         else:
             jhu_split = load_split_from_pickle(args.save_split_path)
+            target_train = jhu_split["target_train"]
+            target_val = jhu_split["target_val"]
+            target_test = jhu_split["target_test"]
+            shadow_train = jhu_split["shadow_train"]
+            shadow_val = jhu_split["shadow_val"]
+            shadow_test = jhu_split["shadow_test"]
+            distillation = jhu_split["destillation"]
     
-    target_train, target_val, target_test, shadow_train, shadow_val, shadow_test, distillation = \
-        jhu_split
+    
 
     # Phase 2: Target Teacher Model training
     if args.train_target:
@@ -487,23 +496,19 @@ def create_attack_data_p2pnext(args):
     # Phase 5: Calculate Metrics on all models
     if args.calculate_metrics:
         print("Phase 5: Calculating metrics on all models")
-        target_member_set = models.JHUData(target_train, JHU_DATA_TRANSFORM, center_crop=2560)
-        target_member_loader = DataLoader(target_member_set, args.batch_size, 
-                                        shuffle=False, collate_fn=jhu_collate_fn)
+        target_member_set = models.JHUData(target_train, JHU_DATA_TRANSFORM)
+        target_member_loader = DataLoader(target_member_set, batch_size=1, shuffle=False)
         
         target_non_member_data = target_val + target_test
-        target_non_member_set = models.JHUData(target_non_member_data, JHU_DATA_TRANSFORM, center_crop=2560)
-        target_non_member_loader = DataLoader(target_non_member_set, args.batch_size, 
-                                            shuffle=False, collate_fn=jhu_collate_fn)
+        target_non_member_set = models.JHUData(target_non_member_data, JHU_DATA_TRANSFORM)
+        target_non_member_loader = DataLoader(target_non_member_set, batch_size=1, shuffle=False)
         
-        shadow_member_set = models.JHUData(shadow_train, JHU_DATA_TRANSFORM, center_crop=2560)
-        shadow_member_loader = DataLoader(shadow_member_set, args.batch_size,
-                                        shuffle=False, collate_fn=jhu_collate_fn)
+        shadow_member_set = models.JHUData(shadow_train, JHU_DATA_TRANSFORM)
+        shadow_member_loader = DataLoader(shadow_member_set, batch_size=1, shuffle=False)
         
         shadow_non_member_data = shadow_val + shadow_test
-        shadow_non_member_set = models.JHUData(shadow_non_member_data, JHU_DATA_TRANSFORM, center_crop=2560)
-        shadow_non_member_loader = DataLoader(shadow_non_member_set, args.batch_size,
-                                            shuffle=False, collate_fn=jhu_collate_fn)
+        shadow_non_member_set = models.JHUData(shadow_non_member_data, JHU_DATA_TRANSFORM)
+        shadow_non_member_loader = DataLoader(shadow_non_member_set, batch_size=1, shuffle=False)
     
         my_metrics = [
             MetricTypes.CountError,
@@ -768,7 +773,8 @@ def distill_p2p_next(teacher: torch.nn.Module, distill_image_data: list[tuple[st
 
     distill_loader_with_soft_labels = getDistillationDataLoaderP2PNext(teacher, 
                                                                        distill_image_data, 
-                                                                       batch_size=args.batch_size, 
+                                                                       batch_size=args.batch_size,
+                                                                       crop_size=args.distill_crop_size, 
                                                                        num_workers=args.num_workers, 
                                                                        device=device)
     

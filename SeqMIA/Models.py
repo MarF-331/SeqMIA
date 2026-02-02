@@ -494,7 +494,7 @@ class JHUDataForDistill(Dataset):
 class P2PNeXtDistillationLoss(nn.Module):
     def __init__(self, point_loss_weight: float=1.0):
         super().__init__()
-        self.point_loss_weigth = point_loss_weight
+        self.point_loss_weight = point_loss_weight
     
     def forward(self, student_output_raw: dict[str, torch.Tensor], soft_labels: list[dict[str, torch.Tensor]]):
         '''
@@ -509,27 +509,25 @@ class P2PNeXtDistillationLoss(nn.Module):
         Returns:
             torch.Tensor: The computed distillation loss.
         '''
-        batch_size = student_output_raw['pred_points'].shape[0]
         device = student_output_raw['pred_points'].device
-        total_loss = 0.0
 
-        for i in range(batch_size):
-            student_points = student_output_raw['pred_points'][i]  # [num_queries, 2]
-            student_logits = student_output_raw['pred_logits'][i]  # [num_queries, 2]
-            teacher_points = soft_labels[i]['pred_points'].to(device)  # [num_queries, 2]
-            teacher_logits = soft_labels[i]['pred_logits'].to(device)  # [num_queries, 2]
+        student_points = student_output_raw["pred_points"] # [B, num_queries, 2]
+        student_logits = student_output_raw["pred_logits"] # [B, num_queries, 2]
 
-            # Compute confidence loss (KL divergence)
-            student_log_probs = F.log_softmax(student_logits, dim=-1)
-            teacher_probs = F.softmax(teacher_logits, dim=-1)
-            confidence_loss = F.kl_div(student_log_probs, teacher_probs, reduction='batchmean')
+        teacher_points = torch.stack([sl["pred_points"] for sl in soft_labels]).to(device)
+        teacher_logits = torch.stack([sl["pred_logits"] for sl in soft_labels]).to(device)
 
-            # Compute point loss (weighted L2 loss)
-            teacher_confidences = teacher_probs[:, 1].unsqueeze(-1)  # Confidence for the positive class
-            point_loss = (teacher_confidences * (student_points - teacher_points) ** 2).mean()
+        # KL Divergence Loss
+        student_log_probs = F.log_softmax(student_logits, dim=-1)
+        teacher_probs = F.softmax(teacher_logits, dim=-1)
+        confidence_loss = F.kl_div(student_log_probs, teacher_probs, reduction="batchmean")
 
-            total_loss += self.point_loss_weigth * point_loss + confidence_loss
+        # Point Loss
+        teacher_confidences = teacher_probs[:, :, 1].unsqueeze(-1)
+        sq_diff = (student_points - teacher_points) ** 2
+        weighted_sq_diff = teacher_confidences * sq_diff
+        point_loss = weighted_sq_diff.mean()
 
-            batch_loss = total_loss / batch_size
+        total_loss = self.point_loss_weight * point_loss + confidence_loss
 
-        return batch_loss
+        return total_loss

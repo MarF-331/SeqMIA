@@ -17,8 +17,10 @@ def extractSoftLabelsP2PNext(model: torch.nn.Module, distillation_dataloader: Da
         for sample, _ in pbar:
             sample = sample.to(device)
             output = model(sample)
+
+            current_batch_size = sample.shape[0]
             
-            for i in range(distillation_dataloader.batch_size):
+            for i in range(current_batch_size):
                 soft_labels.append({
                     "pred_points": output["pred_points"][i].cpu(),
                     "pred_logits": output["pred_logits"][i].cpu()
@@ -28,10 +30,10 @@ def extractSoftLabelsP2PNext(model: torch.nn.Module, distillation_dataloader: Da
 
 
 def getDistillationDataLoaderP2PNext(teacher: nn.Module, distill_image_data: list[tuple[str, np.ndarray]], 
-                                     batch_size: int=1, num_workers: int=4, 
+                                     batch_size: int=1, crop_size: int=512, num_workers: int=4, 
                                      device=torch.device("cpu")) -> DataLoader:
     
-    distill_dataset = JHUData(distill_image_data, JHU_DATA_TRANSFORM, center_crop=512)
+    distill_dataset = JHUData(distill_image_data, JHU_DATA_TRANSFORM, center_crop=crop_size)
     distill_dataloader = DataLoader(distill_dataset, 
                                     batch_size=batch_size, 
                                     num_workers=num_workers, 
