@@ -42,6 +42,22 @@ def confidences_max(scores: np.ndarray) -> Any:
         return 0.0
     else:
         return np.max(scores, axis=0)
+    
+
+def confidences_min(scores: np.ndarray) -> Any:
+    '''
+    Calculates the minimum value of all provided confidence scores.
+
+    Args:
+        scores (np.ndarray): Confidence scores. Shape [Num_Points, ]
+    
+    Returns:
+        out: minimum score
+    '''
+    if scores.size == 0:
+        return 0.0
+    else:
+        return np.min(scores, axis=0)
 
 
 def confidences_mean(scores: np.ndarray) -> Any:
@@ -77,6 +93,23 @@ def confidences_std(scores: np.ndarray) -> Any:
         return np.std(scores, axis=0)
 
 
+def confidences_over_threshold(scores: np.ndarray, threshold: float=0.5) -> int:
+    '''
+    Calculates the number of confidence scores that are above a certain threshold.
+
+    Args:
+        scores (np.ndarray): Confidence scores. Shape [Num_Points, ]
+        threshold (float, optional): The threshold to count scores above.
+    
+    Returns:
+        out (int): number of scores above the threshold
+    '''
+    if scores.size == 0:
+        return 0
+    else:
+        return int(np.sum(scores > threshold))
+
+
 def count_error(predicted_points: np.ndarray, target_points: np.ndarray) -> int:
     '''
     Calculates the counting error of the prediction by comparing 
@@ -87,11 +120,11 @@ def count_error(predicted_points: np.ndarray, target_points: np.ndarray) -> int:
         target_points (np.ndarray): The pixel coordinates of the actual head positions. Shape [Num_Target_Points, 2]
         
     Returns:
-        out (int): counting error (predicted count - target count)
+        out (int): counting error abs(predicted count - target count)
     '''
     pred_count = predicted_points.shape[0]
     target_count = target_points.shape[0]
-    return pred_count - target_count
+    return abs(pred_count - target_count)
 
 
 def nap(predicted_points: np.ndarray, predicted_confidence_scores: np.ndarray, 
@@ -143,11 +176,20 @@ class MetricTypes(Enum):
     MeanConfidence = confidences_mean, confidences_mean.__name__
     StandardDerivationConfidence = confidences_std, confidences_std.__name__
     MaxConfidence = confidences_max, confidences_max.__name__
+    MinConfidence = confidences_min, confidences_min.__name__
+    ConfidencesOver99 = partial(confidences_over_threshold, threshold=0.99), "confidences_over_0.99"
+    ConfidencesOver95 = partial(confidences_over_threshold, threshold=0.95), "confidences_over_0.95"
+    ConfidencesOver90 = partial(confidences_over_threshold, threshold=0.90), "confidences_over_0.90"
+    GroundTruthCount = ground_truth_count, ground_truth_count.__name__
     CountError = count_error, count_error.__name__
-    NAP_K4_T01 = partial(nap, k=4, threshold=0.1), "nAP(k=3, d=0.1)"
-    NAP_K4_T05 = partial(nap, k=4, threshold= 0.5), "nAP(k=4, d=0.5)"
+    NAP_K3_T001 = partial(nap, k=3, threshold=0.01), "nAP(k=3, d=0.01)"
+    NAP_K3_T005 = partial(nap, k=3, threshold=0.05), "nAP(k=3, d=0.05)"
+    NAP_K3_T01 = partial(nap, k=3, threshold=0.1), "nAP(k=3, d=0.1)"
+    NAP_K3_T05 = partial(nap, k=3, threshold= 0.5), "nAP(k=3, d=0.5)"
     AP_16 = partial(ap, threshold=16), "AP(d=16)"
     AP_8 = partial(ap, threshold=8), "AP(d=8)"
+    AP_4 = partial(ap, threshold=4), "AP(d=4)"
+    AP_2 = partial(ap, threshold=2), "AP(d=2)"
 
 
 
@@ -185,23 +227,50 @@ def calculate(output_raw: dict[str, torch.Tensor], target: list[dict[str, torch.
                 case MetricTypes.MaxConfidence as max_conf:
                     current_image_metrics[max_conf.value[1]] = max_conf.value[0](current_pred_scores)
                 
+                case MetricTypes.MinConfidence as min_conf:
+                    current_image_metrics[min_conf.value[1]] = min_conf.value[0](current_pred_scores)
+                
                 case MetricTypes.StandardDerivationConfidence as std_conf:
                     current_image_metrics[std_conf.value[1]] = std_conf.value[0](current_pred_scores)
+                
+                case MetricTypes.ConfidencesOver99 as conf_over_99:
+                    current_image_metrics[conf_over_99.value[1]] = conf_over_99.value[0](scores=current_pred_scores)
+                
+                case MetricTypes.ConfidencesOver95 as conf_over_95:
+                    current_image_metrics[conf_over_95.value[1]] = conf_over_95.value[0](scores=current_pred_scores)
+
+                case MetricTypes.ConfidencesOver90 as conf_over_90:
+                    current_image_metrics[conf_over_90.value[1]] = conf_over_90.value[0](scores=current_pred_scores)
+                
+                case MetricTypes.GroundTruthCount as gt_count:
+                    current_image_metrics[gt_count.value[1]] = gt_count.value[0](current_target_points)
 
                 case MetricTypes.CountError as c_err:
                     current_image_metrics[c_err.value[1]] = \
                         c_err.value[0](predicted_points=current_pred_points, 
                                        target_points=current_target_points)
                 
-                case MetricTypes.NAP_K4_T05 as nap_k4_t05:
-                    current_image_metrics[nap_k4_t05.value[1]] = \
-                        nap_k4_t05.value[0](predicted_points=current_pred_points, 
+                case MetricTypes.NAP_K3_T001 as nap_k3_t001:
+                    current_image_metrics[nap_k3_t001.value[1]] = \
+                        nap_k3_t001.value[0](predicted_points=current_pred_points, 
+                                             predicted_confidence_scores=current_pred_scores,
+                                             target_points=current_target_points)
+                
+                case MetricTypes.NAP_K3_T005 as nap_k3_t005:
+                    current_image_metrics[nap_k3_t005.value[1]] = \
+                        nap_k3_t005.value[0](predicted_points=current_pred_points,
+                                             predicted_confidence_scores=current_pred_scores,
+                                             target_points=current_target_points)
+                
+                case MetricTypes.NAP_K3_T05 as nap_k3_t05:
+                    current_image_metrics[nap_k3_t05.value[1]] = \
+                        nap_k3_t05.value[0](predicted_points=current_pred_points, 
                                             predicted_confidence_scores=current_pred_scores,
                                             target_points=current_target_points)
                 
-                case MetricTypes.NAP_K4_T01 as nap_k4_t01:
-                    current_image_metrics[nap_k4_t01.value[1]] = \
-                        nap_k4_t01.value[0](predicted_points=current_pred_points,
+                case MetricTypes.NAP_K3_T01 as nap_k3_t01:
+                    current_image_metrics[nap_k3_t01.value[1]] = \
+                        nap_k3_t01.value[0](predicted_points=current_pred_points,
                                             predicted_confidence_scores=current_pred_scores,
                                             target_points=current_target_points)
                 
@@ -214,6 +283,18 @@ def calculate(output_raw: dict[str, torch.Tensor], target: list[dict[str, torch.
                 case MetricTypes.AP_8 as ap_8:
                     current_image_metrics[ap_8.value[1]] = \
                         ap_8.value[0](predicted_points=current_pred_points,
+                                      predicted_confidence_scores=current_pred_scores,
+                                      target_points=current_target_points)
+                
+                case MetricTypes.AP_4 as ap_4:
+                    current_image_metrics[ap_4.value[1]] = \
+                        ap_4.value[0](predicted_points=current_pred_points,
+                                      predicted_confidence_scores=current_pred_scores,
+                                      target_points=current_target_points)
+                
+                case MetricTypes.AP_2 as ap_2:
+                    current_image_metrics[ap_2.value[1]] = \
+                        ap_2.value[0](predicted_points=current_pred_points,
                                       predicted_confidence_scores=current_pred_scores,
                                       target_points=current_target_points)
             
