@@ -4,6 +4,7 @@ import pickle as pkl
 import numpy as np
 import torchvision.transforms as transforms
 from typing import Any
+import json
 
 JHU_DATA_TRANSFORM = transforms.Compose([
     transforms.ToTensor(),
@@ -38,6 +39,20 @@ def load_ground_truth_points_from_path(ground_truth_path: str) -> np.ndarray:
     return np.array(points)
 
 
+def load_nwpu_ground_truth_points_from_path(ground_truth_path: str) -> np.ndarray:
+    filetype = os.path.basename(ground_truth_path).split(".")[-1].lower()
+
+    if filetype == "json":
+        with open(ground_truth_path, "r") as f:
+            data = json.load(f)
+            gt_points = data["points"]
+            return np.array(gt_points)
+    elif filetype == "mat":
+        # TODO Implement for .mat files
+        pass
+
+
+
 def load_jhu_data_from_path(image_path: str, ground_truth_path: str) -> tuple[str, np.ndarray]:
     '''
     Loads a tuple of image path and ground truth points from the specified paths.
@@ -62,6 +77,21 @@ def load_jhu_data_from_path(image_path: str, ground_truth_path: str) -> tuple[st
     ground_truth_points = load_ground_truth_points_from_path(ground_truth_path)
     return image_path, ground_truth_points
 
+
+def load_nwpu_data_from_path(image_path: str, ground_truth_path: str) -> tuple[str, np.ndarray]:
+    if not os.path.exists(image_path):
+        raise ValueError(f"Image path not found: {image_path}")
+        
+    if not os.path.exists(ground_truth_path):
+        raise ValueError(f"Ground Truth path not found: {ground_truth_path}")
+        
+    if not (os.path.basename(image_path).split(".")[0] == os.path.basename(ground_truth_path).split(".")[0]):
+        raise ValueError(f"Image path: {image_path} does not match to ground truth path: {ground_truth_path}")
+
+    ground_truth_points = load_nwpu_ground_truth_points_from_path(ground_truth_path)
+    return image_path, ground_truth_points
+    
+    
 
 def split_jhu_data_into_density_bins(image_gt_pairs: list[tuple[str, np.ndarray]]) -> dict[str, list[tuple[str, np.ndarray]]]:
     '''

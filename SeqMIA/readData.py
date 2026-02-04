@@ -3,7 +3,7 @@ from tkinter import Y
 import numpy as np
 import os
 from PIL import Image
-from .utils.JHU_utils import load_jhu_data_from_path
+from .utils.JHU_utils import load_jhu_data_from_path, load_nwpu_data_from_path
 
 import pandas as pd
 
@@ -89,5 +89,22 @@ def readJHU(data_root_path: str) -> list[tuple[str, np.ndarray]]:
                 os.path.join(data_root_path, split, "images", img_path), 
                 os.path.join(data_root_path, split, "gt", gt_path)
                 ))
+    
+    return result
+
+
+def readNWPU(data_root_path: str) -> list[tuple[str, np.ndarray]]:
+    image_paths = os.listdir(os.path.join(data_root_path, "images"))
+    gt_paths = os.listdir(os.path.join(data_root_path, "jsons/jsons"))
+    
+    create_absolute_image_path = lambda relative_path: os.path.join(data_root_path, "images", relative_path)
+    create_absolute_gt_path = lambda relative_path: os.path.join(data_root_path, "jsons/jsons", relative_path)
+
+    absolute_image_paths = list(map(create_absolute_image_path, image_paths))
+    absolute_gt_paths = list(map(create_absolute_gt_path, gt_paths))
+
+    absolute_image_and_gt_path_tuples = list(zip(absolute_image_paths, absolute_gt_paths))
+
+    result = list(map(lambda tup: load_nwpu_data_from_path(*tup), absolute_image_and_gt_path_tuples))
     
     return result
