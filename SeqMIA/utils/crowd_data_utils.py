@@ -93,7 +93,7 @@ def load_nwpu_data_from_path(image_path: str, ground_truth_path: str) -> tuple[s
     
     
 
-def split_jhu_data_into_density_bins(image_gt_pairs: list[tuple[str, np.ndarray]]) -> dict[str, list[tuple[str, np.ndarray]]]:
+def split_crowd_data_into_density_bins(image_gt_pairs: list[tuple[str, np.ndarray]]) -> dict[str, list[tuple[str, np.ndarray]]]:
     '''
     Splits the JHU dataset into different density bins based on the number of ground truth points per image.
     The bins are defined as follows:

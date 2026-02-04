@@ -5,7 +5,7 @@ import numpy as np
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from ..Models import JHUData, JHUDataForDistill, P2PNeXt, P2PNeXtStandardArgs
-from .JHU_utils import JHU_DATA_TRANSFORM, jhu_collate_fn
+from .crowd_data_utils import JHU_DATA_TRANSFORM, jhu_collate_fn
 
 def extractSoftLabelsP2PNext(model: torch.nn.Module, distillation_dataloader: DataLoader, device=torch.device("cpu")):
     model.eval()

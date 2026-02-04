@@ -8,7 +8,7 @@ from . import Metrics as metr
 from . import readData as rd
 from sklearn.datasets import fetch_20newsgroups
 from sklearn.feature_extraction.text import TfidfVectorizer
-from .utils.JHU_utils import split_jhu_data_into_density_bins, JHU_DATA_TRANSFORM, jhu_collate_fn, save_split_to_pickle, load_split_from_pickle
+from .utils.crowd_data_utils import split_crowd_data_into_density_bins, JHU_DATA_TRANSFORM, jhu_collate_fn, save_split_to_pickle, load_split_from_pickle
 from .readData import readJHU
 from .utils.P2PNext_utils import process_p2pnext_output
 from .utils.P2PNeXtMetricsCalculator import calculate, MetricTypes
@@ -98,7 +98,7 @@ def shuffleAndSplitJHUDataByDensity_distillation(image_gt_pairs: list[tuple[str,
     Returns:
         tuple[list[tuple[str,np.ndarray]]]: Tuple containing the split datasets for target model and shadow model along with distillation data.
     '''
-    binned_data = split_jhu_data_into_density_bins(image_gt_pairs)
+    binned_data = split_crowd_data_into_density_bins(image_gt_pairs)
     random.seed(seed)
     np.random.seed(seed)
     
@@ -138,7 +138,47 @@ def shuffleAndSplitJHUDataByDensity_distillation(image_gt_pairs: list[tuple[str,
     print(f"Final dataset sizes: toTrain={len(toTrain)}, shadow={len(shadowTrain)}, toVal={len(toVal)}, shadowVal={len(shadowVal)}, toTest={len(toTest)}, shadowTest={len(shadowTest)}, distillation={len(distillation)}")
 
     return toTrain, toVal, toTest, shadowTrain, shadowVal, shadowTest, distillation
-        
+
+
+def shuffleAndSplitNWPUDataByDensity_distillation(image_gt_pairs: list[tuple[str, np.ndarray]], seed: int=1234) -> tuple[list[tuple[str, np.ndarray]]]:
+    binned_data = split_crowd_data_into_density_bins(image_gt_pairs)
+    random.seed(seed)
+    np.random.seed(seed)
+    
+    toTrain: list[tuple[str, np.ndarray]] = []
+    shadowTrain: list[tuple[str, np.ndarray]] = []
+    toTest_Val: list[tuple[str, np.ndarray]] = []
+    shadowTest_Val: list[tuple[str, np.ndarray]] = []
+    n_splits = 4
+
+    for bin_name, data_in_bin in binned_data.items():
+        print(f"Processing bin: {bin_name} with {len(data_in_bin)} samples")
+        n_data_in_bin = len(data_in_bin)
+        # Split data equally into n_splits parts
+        split_size = n_data_in_bin // n_splits
+        random.shuffle(data_in_bin)
+        toTrain.extend(data_in_bin[0:split_size])
+        shadowTrain.extend(data_in_bin[split_size:2*split_size])
+        toTest_Val.extend(data_in_bin[2*split_size:3*split_size])
+        shadowTest_Val.extend(data_in_bin[3*split_size:])
+    
+    # 50/50 split on target and shadow test/val set
+    toTest = toTest_Val[::2]
+    toVal = toTest_Val[1::2]
+    shadowTest = shadowTest_Val[::2]
+    shadowVal = shadowTest_Val[1::2]
+    
+    # final shuffle
+    random.shuffle(toTrain)
+    random.shuffle(shadowTrain)
+    random.shuffle(toVal)
+    random.shuffle(shadowVal)
+    random.shuffle(toTest)
+    random.shuffle(shadowTest)
+
+    print(f"Final dataset sizes: toTrain={len(toTrain)}, shadow={len(shadowTrain)}, toVal={len(toVal)}, shadowVal={len(shadowVal)}, toTest={len(toTest)}, shadowTest={len(shadowTest)}")
+
+    return toTrain, toVal, toTest, shadowTrain, shadowVal, shadowTest
 
 def get_file_name(path):
     model_file_name = []

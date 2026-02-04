@@ -34,7 +34,7 @@ import argparse
 
 from torch.utils.data import DataLoader
 import dataclasses
-from .utils.JHU_utils import jhu_collate_fn, JHU_DATA_TRANSFORM
+from .utils.crowd_data_utils import jhu_collate_fn, JHU_DATA_TRANSFORM
 import mlflow
 import time
 import datetime
