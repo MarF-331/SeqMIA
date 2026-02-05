@@ -439,71 +439,112 @@ def createAttackDataWithMetrics(dataset,dataFolderPath= './data/',modelFolderPat
     return attack_x, attack_y, classification_y, losses
 
 
+def create_new_data_split(data_root: str, dataset_name: str, seed: int, save_split_path: str=None) \
+    -> tuple[list[tuple[str, np.ndarray]]]:
+    match dataset_name.strip().lower():
+        case "jhu":
+            jhu = readJHU(data_root)
+            jhu_split = shuffleAndSplitJHUDataByDensity_distillation(jhu, seed)
+            if save_split_path:
+                save_split_to_pickle(save_split_path, target_train=jhu_split[0], 
+                                    target_val=jhu_split[1], target_test=jhu_split[2],
+                                    shadow_train=jhu_split[3], shadow_val=jhu_split[4],
+                                    shadow_test=jhu_split[5], destillation=jhu_split[6])
+                print(f"JHU Data Split saved to {save_split_path}")
+            return jhu_split
+        
+        case "nwpu":
+            nwpu = readNWPU(data_root)
+            nwpu_split = shuffleAndSplitNWPUDataByDensity_distillation(nwpu, seed)
+
+            target_train, target_val, target_test, shadow_train, shadow_val, shadow_test = nwpu_split
+            if save_split_path:
+                save_split_to_pickle(save_split_path, target_train=target_train,
+                                     target_val=target_val, target_test=target_test,
+                                     shadow_train=shadow_train, shadow_val=shadow_val,
+                                     shadow_test=shadow_test)
+                print(f"NWPU Data Split saved to {save_split_path}")
+            
+            distillation = readUnlabeledNWPU(data_root)
+
+            return target_train, target_val, target_test, \
+                shadow_train, shadow_val, shadow_test, distillation
+        
+        case _:
+            raise ValueError(f"Dataset {dataset_name} is not supported.\
+                             Supported Datasets are: JHU, NWPU")
+
+
+def load_data_split(data_root: str, dataset_name: str, save_split_path: str) \
+    -> tuple[list[tuple[str, np.ndarray]]]:
+    
+    match dataset_name.strip().lower():
+        case "jhu":
+            jhu_split = load_split_from_pickle(save_split_path)
+            target_train = jhu_split["target_train"]
+            target_val = jhu_split["target_val"]
+            target_test = jhu_split["target_test"]
+            shadow_train = jhu_split["shadow_train"]
+            shadow_val = jhu_split["shadow_val"]
+            shadow_test = jhu_split["shadow_test"]
+            distillation = jhu_split["destillation"]
+
+            return target_train, target_val, target_test, \
+                shadow_train, shadow_val, shadow_test, distillation
+        
+        case "nwpu":
+            nwpu_split = load_split_from_pickle(save_split_path)
+            target_train = nwpu_split["target_train"]
+            target_val = nwpu_split["target_val"]
+            target_test = nwpu_split["target_test"]
+            shadow_train = nwpu_split["shadow_train"]
+            shadow_val = nwpu_split["shadow_val"]
+            shadow_test = nwpu_split["shadow_test"]
+                
+            distillation = readUnlabeledNWPU(data_root)
+
+            return target_train, target_val, target_test, \
+                shadow_train, shadow_val, shadow_test, distillation
+        
+        case _:
+            raise ValueError(f"Dataset {dataset_name} is not supported.\
+                             Supported Datasets are: JHU, NWPU")
+
+
+def load_data_split_for_disjoint_datasets(target_data_root: str, target_dataset_name: str, target_save_split_path: str, 
+                                          shadow_data_root: str, shadow_dataset_name: str, shadow_save_split_path: str) \
+                                            -> tuple[list[tuple[str, np.ndarray]]]:
+    
+    target_split = load_data_split(target_data_root, target_dataset_name, target_save_split_path)
+    shadow_split = load_data_split(shadow_data_root, shadow_dataset_name, shadow_save_split_path)
+
+    target_train, target_val, target_test = target_split[0], target_split[1], target_split[2]
+    shadow_train, shadow_val, shadow_test = shadow_split[0], shadow_split[1], shadow_split[2]
+    distillation = shadow_split[3]
+    
+    return target_train, target_val, target_test, shadow_train, shadow_val, shadow_test, distillation
+
+
 def create_attack_data_p2pnext(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
     # Phase 1: Get the JHU Data Split for SeqMIA
-    if args.run_data_split:
-        if args.dataset_type.strip().lower() == "jhu":
-            print("Phase 1: Create new JHU Data Split")
-            jhu = readJHU(args.data_root)
-            jhu_split = shuffleAndSplitJHUDataByDensity_distillation(jhu, seed=args.seed)
-
-            target_train, target_val, target_test, shadow_train, shadow_val, shadow_test, distillation = \
-                jhu_split
+    if args.run_disjoint_dataset:
+        print(f"Phase 1: Loading data split for disjoint dataset experiment")
+        target_train, target_val, target_test, shadow_train, shadow_val, shadow_test, distillation = \
+            load_data_split_for_disjoint_datasets(args.target_data_root, args.target_dataset_name,
+                                                  args.target_save_split_path, args.shadow_data_root,
+                                                  args.shadow_dataset_name, args.shadow_save_split_path)
         
-            if args.save_split_path:
-                save_split_to_pickle(args.save_split_path, target_train=jhu_split[0], 
-                                    target_val=jhu_split[1], target_test=jhu_split[2],
-                                    shadow_train=jhu_split[3], shadow_val=jhu_split[4],
-                                    shadow_test=jhu_split[5], destillation=jhu_split[6])
-                print(f"JHU Data Split saved to {args.save_split_path}")
-            else:
-                print(f"Path for saving JHU Data Split not found: {args.save_split_path}")
-        elif args.dataset_type.strip().lower() == "nwpu":
-            print("Phase 1: Create new NWPU Data Split")
-            nwpu = readNWPU(args.data_root)
-            nwpu_split = shuffleAndSplitNWPUDataByDensity_distillation(nwpu, seed=args.seed)
-
-            target_train, target_val, target_test, shadow_train, shadow_val, shadow_test = nwpu_split
-
-            if args.save_split_path:
-                save_split_to_pickle(args.save_split_path, target_train=nwpu_split[0],
-                                     target_val=nwpu_split[1], target_test=nwpu_split[2],
-                                     shadow_train=nwpu_split[3], shadow_val=nwpu_split[4],
-                                     shadow_test=nwpu_split[5])
-                print(f"NWPU Data Split saved to {args.save_split_path}")
+    elif args.run_data_split:
+        print(f"Phase 1: Creating new {args.dataset_type} split")
+        target_train, target_val, target_test, shadow_train, shadow_val, shadow_test, distillation = \
+            create_new_data_split(args.data_root, args.dataset_type, args.seed, args.save_split_path)
 
     else:
-        if args.dataset_type.strip().lower() == "jhu":
-            print(f"Phase 1: Loading JHU Data Split from file {args.save_split_path}")
-            if not os.path.exists(args.save_split_path):
-                raise FileNotFoundError(f"Path for loading JHU Data split not found: {args.save_split_path}")
-            else:
-                jhu_split = load_split_from_pickle(args.save_split_path)
-                target_train = jhu_split["target_train"]
-                target_val = jhu_split["target_val"]
-                target_test = jhu_split["target_test"]
-                shadow_train = jhu_split["shadow_train"]
-                shadow_val = jhu_split["shadow_val"]
-                shadow_test = jhu_split["shadow_test"]
-                distillation = jhu_split["destillation"]
-        elif args.dataset_type.strip().lower() == "nwpu":
-            print(f"Phase 1: Loading NWPU Data Split from file {args.save_split_path}")
-            if not os.path.exists(args.save_split_path):
-                raise FileNotFoundError(f"Path for loading NWPU Data split not found: {args.save_split_path}")
-            else:
-                nwpu_split = load_split_from_pickle(args.save_split_path)
-                target_train = nwpu_split["target_train"]
-                target_val = nwpu_split["target_val"]
-                target_test = nwpu_split["target_test"]
-                shadow_train = nwpu_split["shadow_train"]
-                shadow_val = nwpu_split["shadow_val"]
-                shadow_test = nwpu_split["shadow_test"]
-                
-                distillation = readUnlabeledNWPU(args.data_root)
-                print(f"Using unlabeled NWPU Images as distillation dataset")
-    
+        print(f"Phase 1: Loading data split from {args.save_split_path}")
+        target_train, target_val, target_test, shadow_train, shadow_val, shadow_test, distillation = \
+            load_data_split(args.data_root, args.dataset_type, args.save_split_path)
     
     # Phase 2: Target Teacher Model training
     if args.train_target:
