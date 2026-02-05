@@ -6,7 +6,7 @@ import torchvision.transforms as transforms
 from typing import Any
 import json
 
-JHU_DATA_TRANSFORM = transforms.Compose([
+CROWD_DATA_TRANSFORM = transforms.Compose([
     transforms.ToTensor(),
     transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 ])
@@ -165,7 +165,7 @@ def load_split_from_pickle(load_path: str) -> dict[str, list[tuple[str, np.ndarr
     return split_info
 
 
-def jhu_collate_fn(batch: list[tuple[torch.Tensor, Any]]) -> tuple[torch.Tensor, list[Any]]:
+def crowd_collate_fn(batch: list[tuple[torch.Tensor, Any]]) -> tuple[torch.Tensor, list[Any]]:
     '''
     A collate function for JHU dataset to stack image tensors and aggregate targets.
     Images must be of the same size before using this collate function.

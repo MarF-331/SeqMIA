@@ -8,8 +8,8 @@ from . import Metrics as metr
 from . import readData as rd
 from sklearn.datasets import fetch_20newsgroups
 from sklearn.feature_extraction.text import TfidfVectorizer
-from .utils.crowd_data_utils import split_crowd_data_into_density_bins, JHU_DATA_TRANSFORM, jhu_collate_fn, save_split_to_pickle, load_split_from_pickle
-from .readData import readJHU
+from .utils.crowd_data_utils import split_crowd_data_into_density_bins, CROWD_DATA_TRANSFORM, crowd_collate_fn, save_split_to_pickle, load_split_from_pickle
+from .readData import readJHU, readNWPU, readUnlabeledNWPU
 from .utils.P2PNext_utils import process_p2pnext_output
 from .utils.P2PNeXtMetricsCalculator import calculate, MetricTypes
 from .utils.distillation_utils import getDistillationDataLoaderP2PNext, load_distillation_models
@@ -444,37 +444,67 @@ def create_attack_data_p2pnext(args):
     
     # Phase 1: Get the JHU Data Split for SeqMIA
     if args.run_data_split:
-        print("Phase 1: Create new JHU Data Split")
-        jhu = readJHU(args.data_root)
-        jhu_split = shuffleAndSplitJHUDataByDensity_distillation(jhu, seed=args.seed)
+        if args.dataset_type.strip().lower() == "jhu":
+            print("Phase 1: Create new JHU Data Split")
+            jhu = readJHU(args.data_root)
+            jhu_split = shuffleAndSplitJHUDataByDensity_distillation(jhu, seed=args.seed)
 
-        target_train, target_val, target_test, shadow_train, shadow_val, shadow_test, distillation = \
-            jhu_split
-    
-        if args.save_split_path:
-            save_split_to_pickle(args.save_split_path, target_train=jhu_split[0], 
-                                 target_val=jhu_split[1], target_test=jhu_split[2],
-                                 shadow_train=jhu_split[3], shadow_val=jhu_split[4],
-                                 shadow_test=jhu_split[5], destillation=jhu_split[6])
-            print(f"JHU Data Split saved to {args.save_split_path}")
-        else:
-            print(f"Path for saving JHU Data Split not found: {args.save_split_path}")
+            target_train, target_val, target_test, shadow_train, shadow_val, shadow_test, distillation = \
+                jhu_split
+        
+            if args.save_split_path:
+                save_split_to_pickle(args.save_split_path, target_train=jhu_split[0], 
+                                    target_val=jhu_split[1], target_test=jhu_split[2],
+                                    shadow_train=jhu_split[3], shadow_val=jhu_split[4],
+                                    shadow_test=jhu_split[5], destillation=jhu_split[6])
+                print(f"JHU Data Split saved to {args.save_split_path}")
+            else:
+                print(f"Path for saving JHU Data Split not found: {args.save_split_path}")
+        elif args.dataset_type.strip().lower() == "nwpu":
+            print("Phase 1: Create new NWPU Data Split")
+            nwpu = readNWPU(args.data_root)
+            nwpu_split = shuffleAndSplitNWPUDataByDensity_distillation(nwpu, seed=args.seed)
+
+            target_train, target_val, target_test, shadow_train, shadow_val, shadow_test = nwpu_split
+
+            if args.save_split_path:
+                save_split_to_pickle(args.save_split_path, target_train=nwpu_split[0],
+                                     target_val=nwpu_split[1], target_test=nwpu_split[2],
+                                     shadow_train=nwpu_split[3], shadow_val=nwpu_split[4],
+                                     shadow_test=nwpu_split[5])
+                print(f"NWPU Data Split saved to {args.save_split_path}")
+
     else:
-        print(f"Phase 1: Loading JHU Data Split from file {args.save_split_path}")
-        if not os.path.exists(args.save_split_path):
-            raise FileNotFoundError(f"Path for loading JHU Data Split not found: {args.save_split_path}")
-        else:
-            jhu_split = load_split_from_pickle(args.save_split_path)
-            target_train = jhu_split["target_train"]
-            target_val = jhu_split["target_val"]
-            target_test = jhu_split["target_test"]
-            shadow_train = jhu_split["shadow_train"]
-            shadow_val = jhu_split["shadow_val"]
-            shadow_test = jhu_split["shadow_test"]
-            distillation = jhu_split["destillation"]
+        if args.dataset_type.strip().lower() == "jhu":
+            print(f"Phase 1: Loading JHU Data Split from file {args.save_split_path}")
+            if not os.path.exists(args.save_split_path):
+                raise FileNotFoundError(f"Path for loading JHU Data split not found: {args.save_split_path}")
+            else:
+                jhu_split = load_split_from_pickle(args.save_split_path)
+                target_train = jhu_split["target_train"]
+                target_val = jhu_split["target_val"]
+                target_test = jhu_split["target_test"]
+                shadow_train = jhu_split["shadow_train"]
+                shadow_val = jhu_split["shadow_val"]
+                shadow_test = jhu_split["shadow_test"]
+                distillation = jhu_split["destillation"]
+        elif args.dataset_type.strip().lower() == "nwpu":
+            print(f"Phase 1: Loading NWPU Data Split from file {args.save_split_path}")
+            if not os.path.exists(args.save_split_path):
+                raise FileNotFoundError(f"Path for loading NWPU Data split not found: {args.save_split_path}")
+            else:
+                nwpu_split = load_split_from_pickle(args.save_split_path)
+                target_train = nwpu_split["target_train"]
+                target_val = nwpu_split["target_val"]
+                target_test = nwpu_split["target_test"]
+                shadow_train = nwpu_split["shadow_train"]
+                shadow_val = nwpu_split["shadow_val"]
+                shadow_test = nwpu_split["shadow_test"]
+                
+                distillation = readUnlabeledNWPU(args.data_root)
+                print(f"Using unlabeled NWPU Images as distillation dataset")
     
     
-
     # Phase 2: Target Teacher Model training
     if args.train_target:
         print("Phase 2: Training Target Teacher model.")
@@ -536,20 +566,20 @@ def create_attack_data_p2pnext(args):
     # Phase 5: Calculate Metrics on all models
     if args.calculate_metrics:
         print("Phase 5: Calculating metrics on all models")
-        target_member_set = models.JHUData(target_train, JHU_DATA_TRANSFORM)
+        target_member_set = models.CrowdData(target_train, CROWD_DATA_TRANSFORM)
 
-        target_member_loader = DataLoader(target_member_set, batch_size=1, shuffle=False, collate_fn=jhu_collate_fn)
+        target_member_loader = DataLoader(target_member_set, batch_size=1, shuffle=False, collate_fn=crowd_collate_fn)
         
         target_non_member_data = target_val + target_test
-        target_non_member_set = models.JHUData(target_non_member_data, JHU_DATA_TRANSFORM)
-        target_non_member_loader = DataLoader(target_non_member_set, batch_size=1, shuffle=False, collate_fn=jhu_collate_fn)
+        target_non_member_set = models.CrowdData(target_non_member_data, CROWD_DATA_TRANSFORM)
+        target_non_member_loader = DataLoader(target_non_member_set, batch_size=1, shuffle=False, collate_fn=crowd_collate_fn)
         
-        shadow_member_set = models.JHUData(shadow_train, JHU_DATA_TRANSFORM)
-        shadow_member_loader = DataLoader(shadow_member_set, batch_size=1, shuffle=False, collate_fn=jhu_collate_fn)
+        shadow_member_set = models.CrowdData(shadow_train, CROWD_DATA_TRANSFORM)
+        shadow_member_loader = DataLoader(shadow_member_set, batch_size=1, shuffle=False, collate_fn=crowd_collate_fn)
         
         shadow_non_member_data = shadow_val + shadow_test
-        shadow_non_member_set = models.JHUData(shadow_non_member_data, JHU_DATA_TRANSFORM)
-        shadow_non_member_loader = DataLoader(shadow_non_member_set, batch_size=1, shuffle=False, collate_fn=jhu_collate_fn)
+        shadow_non_member_set = models.CrowdData(shadow_non_member_data, CROWD_DATA_TRANSFORM)
+        shadow_non_member_loader = DataLoader(shadow_non_member_set, batch_size=1, shuffle=False, collate_fn=crowd_collate_fn)
     
         my_metrics = [
             MetricTypes.CountError,

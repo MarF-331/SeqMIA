@@ -322,7 +322,7 @@ class CIFARDataForDistill(Dataset):
         return img, label, softlabel
 
 
-class JHUData(Dataset):
+class CrowdData(Dataset):
     def __init__(self, image_data: list[tuple[str, np.ndarray]], 
                  transform :Callable[[Image.Image], Image.Image]=None, 
                  fixed_image_size: tuple[int, int]=None, random_crop: int=None,
@@ -476,8 +476,8 @@ class JHUData(Dataset):
         return img, ground_truth_points
 
 
-class JHUDataForDistill(Dataset):
-    def __init__(self, image_data_set: JHUData, soft_labels: list[dict[str, torch.Tensor]]):
+class CrowdDataForDistill(Dataset):
+    def __init__(self, image_data_set: CrowdData, soft_labels: list[dict[str, torch.Tensor]]):
         self.data = image_data_set
         self.soft_labels = soft_labels
     

@@ -34,7 +34,7 @@ import argparse
 
 from torch.utils.data import DataLoader
 import dataclasses
-from .utils.crowd_data_utils import jhu_collate_fn, JHU_DATA_TRANSFORM
+from .utils.crowd_data_utils import crowd_collate_fn, CROWD_DATA_TRANSFORM
 import mlflow
 import time
 import datetime
@@ -291,11 +291,11 @@ def train_p2p_next(model, criterion, train_data: list[tuple[str, np.ndarray]],
     optimizer = torch.optim.Adam(param_dicts, lr=args.lr)
     lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, args.lr_drop)
 
-    train_dataset = models.JHUData(train_data, JHU_DATA_TRANSFORM, random_crop=args.crop_size)
-    val_dataset = models.JHUData(val_data, JHU_DATA_TRANSFORM)
+    train_dataset = models.CrowdData(train_data, CROWD_DATA_TRANSFORM, random_crop=args.crop_size)
+    val_dataset = models.CrowdData(val_data, CROWD_DATA_TRANSFORM)
 
-    train_loader = DataLoader(train_dataset, args.batch_size, shuffle=True, num_workers=args.num_workers, collate_fn=jhu_collate_fn)
-    val_loader = DataLoader(val_dataset, 1, shuffle=False, num_workers=args.num_workers, collate_fn=jhu_collate_fn)
+    train_loader = DataLoader(train_dataset, args.batch_size, shuffle=True, num_workers=args.num_workers, collate_fn=crowd_collate_fn)
+    val_loader = DataLoader(val_dataset, 1, shuffle=False, num_workers=args.num_workers, collate_fn=crowd_collate_fn)
 
     if args.resume:
         resume_path = os.path.join(save_directory, "latest.pth")

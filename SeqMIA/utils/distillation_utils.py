@@ -4,8 +4,8 @@ import torch.nn as nn
 import numpy as np
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from ..Models import JHUData, JHUDataForDistill, P2PNeXt, P2PNeXtStandardArgs
-from .crowd_data_utils import JHU_DATA_TRANSFORM, jhu_collate_fn
+from ..Models import CrowdData, CrowdDataForDistill, P2PNeXt
+from .crowd_data_utils import CROWD_DATA_TRANSFORM, crowd_collate_fn
 
 def extractSoftLabelsP2PNext(model: torch.nn.Module, distillation_dataloader: DataLoader, device=torch.device("cpu")):
     model.eval()
@@ -33,21 +33,21 @@ def getDistillationDataLoaderP2PNext(teacher: nn.Module, distill_image_data: lis
                                      batch_size: int=1, crop_size: int=512, num_workers: int=4, 
                                      device=torch.device("cpu")) -> DataLoader:
     
-    distill_dataset = JHUData(distill_image_data, JHU_DATA_TRANSFORM, center_crop=crop_size)
+    distill_dataset = CrowdData(distill_image_data, CROWD_DATA_TRANSFORM, center_crop=crop_size)
     distill_dataloader = DataLoader(distill_dataset, 
                                     batch_size=batch_size, 
                                     num_workers=num_workers, 
                                     shuffle=False, 
-                                    collate_fn=jhu_collate_fn)                                              
+                                    collate_fn=crowd_collate_fn)                                              
     
     soft_labels = extractSoftLabelsP2PNext(teacher, distill_dataloader, device)
     
-    distill_data_with_soft_labels = JHUDataForDistill(distill_dataset, soft_labels)
+    distill_data_with_soft_labels = CrowdDataForDistill(distill_dataset, soft_labels)
     distill_loader_with_soft_labels = DataLoader(distill_data_with_soft_labels,
                                                  batch_size=batch_size, 
                                                  shuffle=True, 
                                                  num_workers=num_workers, 
-                                                 collate_fn=jhu_collate_fn)
+                                                 collate_fn=crowd_collate_fn)
     
     return distill_loader_with_soft_labels
 

@@ -106,5 +106,20 @@ def readNWPU(data_root_path: str) -> list[tuple[str, np.ndarray]]:
     absolute_image_and_gt_path_tuples = list(zip(absolute_image_paths, absolute_gt_paths))
 
     result = list(map(lambda tup: load_nwpu_data_from_path(*tup), absolute_image_and_gt_path_tuples))
-    print(result[2])
     return result
+
+
+def find_unlabeled_nwpu_img_paths(data_root_path: str) -> list[str]:
+    image_paths = os.listdir(os.path.join(data_root_path, "images"))
+    absolute_image_paths = [os.path.join(data_root_path, "images", p) for p in image_paths]
+    result = [p for p in absolute_image_paths 
+              if not os.path.exists(os.path.join(data_root_path, "jsons/jsons", os.path.basename(p).replace(".jpg", ".json")))]
+    
+    return result
+
+
+def readUnlabeledNWPU(data_root_path: str) -> list[tuple[str, np.ndarray]]:
+    absolute_image_paths = find_unlabeled_nwpu_img_paths(data_root_path)
+    result = [(p, np.empty(shape=(0, 2))) for p in absolute_image_paths]
+    return result
+    
