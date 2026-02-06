@@ -17,10 +17,14 @@ import random
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 path_to_p2p_next = os.path.join(current_dir, "../P2PNeXt")
+path_to_dm_count = os.path.join(current_dir, "../DMCount")
 sys.path.append(path_to_p2p_next)
+sys.path.append(path_to_dm_count)
 
 from P2PNeXt.Networks.P2P.models.p2pnet_conv_next import build
 from P2PNeXt.utils import run_P2P_inference
+
+from DMCount.models import vgg19
 
 class Flatten(nn.Module):
     def forward(self, input):
@@ -274,6 +278,31 @@ class P2PNeXt(nn.Module):
 
     def forward(self, x):
         return self.model(x)
+
+
+class DMCount(nn.Module):
+    def __init__(self, checkpoint_path: str=None):
+        super(DMCount, self).__init__()
+        self.model = vgg19()
+        if checkpoint_path:
+            self._load_checkpoint(checkpoint_path)
+    
+    def forward(self, x):
+        return self.model(x)
+    
+    def predict_count(self, x):
+        output, _ = self.forward(x)
+        count = [int(output[i].sum().item()) for i in range(x.shape[0])]
+        return count
+
+    def _load_checkpoint(self, checkpoint_path: str) -> None:
+        if os.path.exists(checkpoint_path):
+            print(f"Loading DMCount Checkpoint at {checkpoint_path}")
+            checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+            self.model.load_state_dict(checkpoint)
+            print(f"DMCount Checkpoint loaded!")
+        else:
+            print(f"Path was not found {checkpoint_path}")
 
 
 class AttackRNNP2PNeXt(nn.Module):
