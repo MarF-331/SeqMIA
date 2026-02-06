@@ -14,6 +14,9 @@ import os
 import sys
 import torch.nn.utils.rnn as rnn_utils
 import random
+from utils.crowd_data_utils import pad_image_for_crop, resize_image_to_target_size, \
+                                    resize_to_multiple_of_128, center_crop_image, random_crop_image, \
+                                    crop_ground_truth_points, scale_image_for_crop
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 path_to_p2p_next = os.path.join(current_dir, "../P2PNeXt")
@@ -355,13 +358,14 @@ class CrowdData(Dataset):
     def __init__(self, image_data: list[tuple[str, np.ndarray]], 
                  transform :Callable[[Image.Image], Image.Image]=None, 
                  fixed_image_size: tuple[int, int]=None, random_crop: int=None,
-                 center_crop: int=None):
+                 center_crop: int=None, resize_to_multiple_of_128: bool=True):
         
         self.image_data = sorted(image_data, key=lambda tup: os.path.basename(tup[0]))
         self.transform = transform
         self.fixed_image_size = fixed_image_size
         self.random_crop = random_crop
         self.center_crop = center_crop
+        self.resize_to_multiple_of_128 = resize_to_multiple_of_128
     
     def __len__(self):
         return len(self.image_data)
@@ -371,15 +375,16 @@ class CrowdData(Dataset):
         img_raw = Image.open(image_path).convert("RGB")
        
         if self.fixed_image_size:
-            img_raw, ground_truth_points = self._resize_image_to_target_size(img_raw, ground_truth_points, self.fixed_image_size)
+            img_raw, ground_truth_points = resize_image_to_target_size(img_raw, ground_truth_points, self.fixed_image_size)
         
         if self.random_crop:
-            img_raw, ground_truth_points = self._random_crop_image(img_raw, ground_truth_points, self.random_crop)
+            img_raw, ground_truth_points = random_crop_image(img_raw, ground_truth_points, self.random_crop)
 
         elif self.center_crop:
-            img_raw, ground_truth_points = self._center_crop_image(img_raw, ground_truth_points, self.center_crop)
+            img_raw, ground_truth_points = center_crop_image(img_raw, ground_truth_points, self.center_crop)
 
-        img_raw, ground_truth_points = self._resize_to_multiple_of_128(img_raw, ground_truth_points)
+        if self.resize_to_multiple_of_128:
+            img_raw, ground_truth_points = resize_to_multiple_of_128(img_raw, ground_truth_points)
 
         if self.transform:
             img_tensor = self.transform(img_raw)
@@ -396,113 +401,6 @@ class CrowdData(Dataset):
         }
 
         return img_tensor, target
-    
-    def _center_crop_image(self, img: Image.Image, ground_truth_points: np.ndarray, crop_size: int=128) -> tuple[Image.Image, np.ndarray]:
-        
-        img, ground_truth_points = self._pad_image_for_crop(img, ground_truth_points, crop_size)
-        width, height = img.size
-
-        left = (width - crop_size) // 2
-        upper = (height - crop_size) // 2
-        right = left + crop_size
-        lower = upper + crop_size
-        img = img.crop((left, upper, right, lower))
-        
-        gt_points_cropped = self._crop_ground_truth_points((left, upper, right, lower), ground_truth_points)
-
-        return img, gt_points_cropped
-    
-    def _random_crop_image(self, img: Image.Image, ground_truth_points: np.ndarray, crop_size: int=128):
-
-        img, ground_truth_points = self._pad_image_for_crop(img, ground_truth_points, crop_size)
-        
-        width, height = img.size
-        left = random.randint(0, width - crop_size)
-        upper = random.randint(0, height - crop_size)
-        right = left + crop_size
-        lower = upper + crop_size
-        img = img.crop((left, upper, right, lower))
-
-        gt_points_cropped = self._crop_ground_truth_points((left, upper, right, lower), ground_truth_points)
-        
-        return img, gt_points_cropped
-
-    def _resize_image_to_target_size(self, img: Image.Image, ground_truth_points: np.ndarray, target_size: tuple[int, int]) -> Image.Image:
-        width, height = img.size
-        target_width, target_height = target_size
-        factor_width, factor_height = target_width / width, target_height / height
-        img = img.resize((target_width, target_height), Image.Resampling.LANCZOS)
-        ground_truth_points = np.array([[x * factor_width, y * factor_height] for x, y in ground_truth_points])
-        return img, ground_truth_points
-
-    def _resize_to_multiple_of_128(self, img: Image.Image, ground_truth_points: np.ndarray):
-        width, height = img.size
-        # height or width already a multiple of 128?
-        if width >= 128 and width // 128 == 0:
-            new_width = width
-        else: 
-            new_width = max(128, (width // 128) * 128)
-        
-        if height >= 128 and height // 128 == 0:
-            new_height = height
-        else:
-            new_height = max(128, (height // 128) * 128)
-        
-        if new_height == height and new_width == width:
-            return img, ground_truth_points
-        
-        factor_width, factor_height = new_width / width, new_height / height
-        img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
-        ground_truth_points_out = np.array([[x * factor_width, y * factor_height] for x, y in ground_truth_points])
-        assert ground_truth_points_out.shape == ground_truth_points.shape
-        return img, ground_truth_points_out
-    
-    def _crop_ground_truth_points(self, crop_box: tuple[int, int, int, int], ground_truth_points: np.ndarray) -> np.ndarray:
-        left, upper, right, lower = crop_box
-        if ground_truth_points.shape[0] > 0:
-            mask = (ground_truth_points[:, 0] >= left) & (ground_truth_points[:, 0] < right) & \
-                (ground_truth_points[:, 1] >= upper) & (ground_truth_points[:, 1] < lower)
-            gt_points_cropped = ground_truth_points[mask].copy()
-            gt_points_cropped[:, 0] -= left
-            gt_points_cropped[:, 1] -= upper
-        else:
-            gt_points_cropped = np.zeros((0, 2))
-        
-        return gt_points_cropped
-    
-    def _scale_image_for_crop(self, img: Image.Image, ground_truth_points: np.ndarray, 
-                              target_crop_size: int=128) -> tuple[Image.Image, np.ndarray]:
-        
-        width, height = img.size
-        if width < target_crop_size or height < target_crop_size:
-            scale = target_crop_size / min(width, height)
-            new_width = int(np.ceil(width * scale))
-            new_height = int(np.ceil(height * scale))
-            img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
-            ground_truth_points = ground_truth_points * scale
-
-        return img, ground_truth_points
-    
-    def _pad_image_for_crop(self, img: Image.Image, ground_truth_points: np.ndarray,
-                            target_crop_size: int=128) -> tuple[Image.Image, np.ndarray]:
-        
-        width, height = img.size
-        if width < target_crop_size or height < target_crop_size:
-            new_width = max(width, target_crop_size)
-            new_height = max(height, target_crop_size)
-            new_img = Image.new("RGB", (new_width, new_height), (0, 0, 0))
-
-            pad_left = (new_width - width) // 2
-            pad_top = (new_height - height) // 2
-            new_img.paste(img, (pad_left, pad_top))
-            img = new_img
-            if ground_truth_points.shape[0] > 0:
-                ground_truth_points_padded = ground_truth_points.copy()
-                ground_truth_points_padded[:, 0] += pad_left
-                ground_truth_points_padded[:, 1] += pad_top
-                ground_truth_points = ground_truth_points_padded
-        
-        return img, ground_truth_points
 
 
 class CrowdDataForDistill(Dataset):
