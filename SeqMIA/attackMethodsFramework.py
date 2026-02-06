@@ -39,13 +39,18 @@ import mlflow
 import time
 import datetime
 import logging
+from tqdm import tqdm
+from torchmetrics import MeanMetric, MetricCollection
 logger = logging.getLogger()
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 path_to_p2p_next = os.path.join(current_dir, "../P2PNeXt")
+path_to_dm_count = os.path.join(current_dir, "../DMCount")
 sys.path.append(path_to_p2p_next)
+sys.path.append(path_to_dm_count)
 
 from P2PNeXt.train.engine import train_one_epoch, evaluate_crowd_no_overlap
+from DMCount.losses.ot_loss import OT_Loss
 
 
 def load_data_for_trainortest(data_name):
@@ -394,6 +399,162 @@ def train_p2p_next(model, criterion, train_data: list[tuple[str, np.ndarray]],
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
     logger.info(f'⏰ Training time: {total_time_str}')
 
+
+def train_dm_count(model, train_data: list[tuple[str, np.ndarray]], val_data: list[tuple[str, np.ndarray]], 
+                   device, args, save_directory: str):
+    
+    logger.info(f"✔️  Checkpoint directory: {save_directory}")
+
+    # Fix the seed for reproducibility
+    seed = args.seed
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.backends.cudnn.enabled = True
+    torch.backends.cudnn.benchmark = True
+    torch.backends.cudnn.deterministic = True
+
+    model.to(device)
+
+    n_parameter = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    logger.info(f'🔢 Number of parameters: {n_parameter:,}')
+
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.dm_lr, weight_decay=args.dm_weight_decay)
+    ot_loss = OT_Loss(args.dm_crop_size, args.dm_downsample_ratio, args.dm_norm_cood, device, 
+                      args.dm_num_of_iter_in_ot, args.dm_reg)
+    tv_loss = nn.L1Loss(reduction='none').to(device)
+    mae = nn.L1Loss().to(device)
+    mse = nn.MSELoss().to(device)
+
+    train_dataset = models.CrowdData(train_data, CROWD_DATA_TRANSFORM, random_crop=512, 
+                                     resize_to_multiple_of_128=False, generate_discrete_map=True)
+    val_dataset = models.CrowdData(val_data, CROWD_DATA_TRANSFORM, resize_to_multiple_of_128=False,
+                                   generate_discrete_map=False)
+    
+    train_loader = DataLoader(train_dataset, args.dm_batch_size, shuffle=True, num_workers=args.dm_num_workers, collate_fn=crowd_collate_fn)
+    val_loader = DataLoader(val_dataset, 1, shuffle=False, num_workers=args.dm_num_workers, collate_fn=crowd_collate_fn)
+
+    metrics = MetricCollection({
+        "epoch_ot_loss": MeanMetric(),
+        "epoch_ot_obj_value": MeanMetric(),
+        "epoch_wd": MeanMetric(),
+        "epoch_count_loss": MeanMetric(),
+        "epoch_tv_loss": MeanMetric(),
+        "epoch_loss": MeanMetric(),
+        "epoch_mae": MeanMetric(),
+        "epoch_mse": MeanMetric()
+    }).to(device)
+
+    logger.info("🚀 Start training")
+    start_time = time.time()
+    best_mae = float("inf")
+    best_mse = float("inf")
+    for epoch in range(args.dm_epochs):
+        metrics.reset()
+        model.train()
+        for inputs, target in tqdm(train_loader):
+            inputs = inputs.to(device)
+            points = [t["point"].to(device) for t in target]
+            gt_discrete = torch.stack([t["discrete_map"] for t in target]).to(device)
+            gd_count = np.array([len(t["point"]) for t in target], dtype=np.float32)
+            N = inputs.size(0)
+
+            outputs, outputs_normed = model(inputs)
+            # Compute OT loss.
+            ot_loss, wd, ot_obj_value = ot_loss(outputs_normed, outputs, points)
+            ot_loss = ot_loss * args.dm_wot
+            ot_obj_value = ot_obj_value * args.dm_wot
+            metrics["epoch_ot_loss"].update(ot_loss.item(), N)
+            metrics["epoch_ot_obj_value"].update(ot_obj_value.item(), N)
+            metrics["epoch_wd"].update(wd, N)
+
+            # Compute counting loss.
+            count_loss = mae(outputs.sum(1).sum(1).sum(1),
+                                      torch.from_numpy(gd_count).float().to(device))
+            metrics["epoch_count_loss"].update(count_loss.item(), N)
+
+            # Compute TV loss.
+            gd_count_tensor = torch.from_numpy(gd_count).float().to(device).unsqueeze(1).unsqueeze(2).unsqueeze(3)
+            gt_discrete_normed = gt_discrete / (gd_count_tensor + 1e-6)
+            tv_loss = (tv_loss(outputs_normed, gt_discrete_normed).sum(1).sum(1).sum(1) \
+                       * torch.from_numpy(gd_count).float().to(device)).mean(0) * args.dm_wtv
+            metrics["epoch_tv_loss"].update(tv_loss.item(), N)
+
+            loss = ot_loss + count_loss + tv_loss
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            pred_count = torch.sum(outputs.view(N, -1), dim=1).detach().cpu().numpy()
+            pred_err = pred_count - gd_count
+            metrics["epoch_loss"].update(loss.item(), N)
+            metrics["epoch_mse"].update(np.mean(pred_err * pred_err), N)
+            metrics["epoch_mae"].update(np.mean(np.abs(pred_err)), N)
+
+        results = metrics.compute()
+        logger.info(
+            'Epoch {} Train, Loss: {:.2f}, OT Loss: {:.2e}, Wass Distance: {:.2f}, OT obj value: {:.2f}, '
+            'Count Loss: {:.2f}, TV Loss: {:.2f}, MSE: {:.2f} MAE: {:.2f}, Cost {:.1f} sec'
+                .format(epoch, results["epoch_loss"], results["eopoch_ot_loss"], results["epoch_wd"],
+                        results["epoch_ot_obj_value"], results["epoch_count_loss"], results["epoch_tv_loss"],
+                        np.sqrt(results["epoch_mse"].item()), results["epoch_mae"], time.time() - start_time)
+        )
+
+        # Save the latest checkpoint
+        checkpoint_latest_path = os.path.join(save_directory, 'latest.pth')
+        torch.save({
+            'model_state_dict': model.state_dict(),
+            'epoch': epoch + 1,
+            'best_mae': best_mae,
+            'best_mse': best_mse,
+            'optimizer_state_dict': optimizer.state_dict(),
+        }, checkpoint_latest_path)
+        logger.info(f'Epoch {epoch + 1} finished! Model saved at: {checkpoint_latest_path}')
+
+        # Validation
+        if epoch % args.dm_eval_freq == 0:
+            logger.info("🔍 Starting evaluation")
+            epoch_start = time.time()
+            model.eval()  # Set model to evaluate mode
+            epoch_res = []
+            for inputs, target in val_loader:
+                inputs = inputs.to(device)
+                assert inputs.size(0) == 1, 'the batch size should equal to 1 in validation mode'
+                with torch.no_grad():
+                    outputs, _ = model(inputs)
+                gt_count = len(target[0]["point"])
+                pred_count = torch.sum(outputs).item()
+                res = gt_count - pred_count
+                epoch_res.append(res)
+
+            epoch_res = np.array(epoch_res)
+            mse = np.sqrt(np.mean(np.square(epoch_res)))
+            mae = np.mean(np.abs(epoch_res))
+            logger.info('Epoch {} Val, MSE: {:.2f} MAE: {:.2f}, Cost {:.1f} sec'
+                            .format(epoch, mse, mae, time.time() - epoch_start))
+
+            model_state_dic = model.state_dict()
+            if (2.0 * mse + mae) < (2.0 * best_mse + best_mae):
+                best_mse = mse
+                best_mae = mae
+                logger.info("save best mse {:.2f} mae {:.2f} model epoch {}".format(best_mse,
+                                                                                        best_mae,
+                                                                                        epoch))
+                checkpoint_best_path = os.path.join(save_directory, 'best.pth')
+                torch.save({
+                    'model_state_dict': model_state_dic,
+                    'epoch': epoch + 1,
+                    'best_mae': best_mae,
+                    'best_mse': best_mse,
+                    'optimizer_state_dict': optimizer.state_dict(),
+                }, checkpoint_best_path)
+                logger.info(f'🌟 New best epoch, model saved at: {checkpoint_best_path}')
+    
+    total_time = time.time() - start_time
+    total_time_str = str(datetime.timedelta(seconds=int(total_time)))
+    logger.info(f'⏰ Training time: {total_time_str}')
 
 
 def train_attack_model_RNN(dataset, epochs=100, batch_size=100, learning_rate=0.01, l2_ratio=1e-7,
