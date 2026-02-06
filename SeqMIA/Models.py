@@ -14,9 +14,8 @@ import os
 import sys
 import torch.nn.utils.rnn as rnn_utils
 import random
-from utils.crowd_data_utils import pad_image_for_crop, resize_image_to_target_size, \
-                                    resize_to_multiple_of_128, center_crop_image, random_crop_image, \
-                                    crop_ground_truth_points, scale_image_for_crop
+from .utils.crowd_data_utils import resize_image_to_target_size, resize_to_multiple_of_128,\
+    center_crop_image, random_crop_image
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 path_to_p2p_next = os.path.join(current_dir, "../P2PNeXt")
@@ -28,6 +27,7 @@ from P2PNeXt.Networks.P2P.models.p2pnet_conv_next import build
 from P2PNeXt.utils import run_P2P_inference
 
 from DMCount.models import vgg19
+from DMCount.datasets.crowd import gen_discrete_map
 
 class Flatten(nn.Module):
     def forward(self, input):
@@ -358,7 +358,8 @@ class CrowdData(Dataset):
     def __init__(self, image_data: list[tuple[str, np.ndarray]], 
                  transform :Callable[[Image.Image], Image.Image]=None, 
                  fixed_image_size: tuple[int, int]=None, random_crop: int=None,
-                 center_crop: int=None, resize_to_multiple_of_128: bool=True):
+                 center_crop: int=None, resize_to_multiple_of_128: bool=True,
+                 generate_discrete_map: bool=False):
         
         self.image_data = sorted(image_data, key=lambda tup: os.path.basename(tup[0]))
         self.transform = transform
@@ -366,6 +367,7 @@ class CrowdData(Dataset):
         self.random_crop = random_crop
         self.center_crop = center_crop
         self.resize_to_multiple_of_128 = resize_to_multiple_of_128
+        self.generate_discrete_map = generate_discrete_map
     
     def __len__(self):
         return len(self.image_data)
@@ -385,7 +387,11 @@ class CrowdData(Dataset):
 
         if self.resize_to_multiple_of_128:
             img_raw, ground_truth_points = resize_to_multiple_of_128(img_raw, ground_truth_points)
-
+        
+        if self.generate_discrete_map:
+            width, height = img_raw.size
+            discrete_map = gen_discrete_map(height, width, ground_truth_points)
+        
         if self.transform:
             img_tensor = self.transform(img_raw)
         else:
@@ -399,6 +405,9 @@ class CrowdData(Dataset):
             "image_id": torch.tensor([img_id], dtype=torch.long),
             "labels": torch.ones(ground_truth_points.shape[0], dtype=torch.long)
         }
+
+        if self.generate_discrete_map:
+            target["discrete_map"] = torch.tensor(discrete_map, dtype=torch.float32)
 
         return img_tensor, target
 
