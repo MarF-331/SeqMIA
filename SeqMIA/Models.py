@@ -359,7 +359,7 @@ class CrowdData(Dataset):
                  transform :Callable[[Image.Image], Image.Image]=None, 
                  fixed_image_size: tuple[int, int]=None, random_crop: int=None,
                  center_crop: int=None, resize_to_multiple_of_128: bool=True,
-                 generate_discrete_map: bool=False):
+                 generate_discrete_map: bool=False, discrete_map_downsample: int=8):
         
         self.image_data = sorted(image_data, key=lambda tup: os.path.basename(tup[0]))
         self.transform = transform
@@ -368,6 +368,7 @@ class CrowdData(Dataset):
         self.center_crop = center_crop
         self.resize_to_multiple_of_128 = resize_to_multiple_of_128
         self.generate_discrete_map = generate_discrete_map
+        self.downsample_factor = discrete_map_downsample
     
     def __len__(self):
         return len(self.image_data)
@@ -391,6 +392,9 @@ class CrowdData(Dataset):
         if self.generate_discrete_map:
             width, height = img_raw.size
             discrete_map = gen_discrete_map(height, width, ground_truth_points)
+            discrete_map = discrete_map.reshape(height // self.downsample_factor, self.downsample_factor,
+                                                width // self.downsample_factor, self.downsample_factor).sum(axis=(1, 3))
+            discrete_map = np.expand_dims(discrete_map, 0)
         
         if self.transform:
             img_tensor = self.transform(img_raw)

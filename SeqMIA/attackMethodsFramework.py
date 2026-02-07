@@ -421,14 +421,14 @@ def train_dm_count(model, train_data: list[tuple[str, np.ndarray]], val_data: li
     logger.info(f'🔢 Number of parameters: {n_parameter:,}')
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.dm_lr, weight_decay=args.dm_weight_decay)
-    ot_loss = OT_Loss(args.dm_crop_size, args.dm_downsample_ratio, args.dm_norm_cood, device, 
+    ot_loss_fn = OT_Loss(args.dm_crop_size, args.dm_downsample_ratio, args.dm_norm_cood, device, 
                       args.dm_num_of_iter_in_ot, args.dm_reg)
-    tv_loss = nn.L1Loss(reduction='none').to(device)
-    mae = nn.L1Loss().to(device)
-    mse = nn.MSELoss().to(device)
+    tv_loss_fn = nn.L1Loss(reduction='none').to(device)
+    mae_fn = nn.L1Loss().to(device)
 
-    train_dataset = models.CrowdData(train_data, CROWD_DATA_TRANSFORM, random_crop=512, 
-                                     resize_to_multiple_of_128=False, generate_discrete_map=True)
+    train_dataset = models.CrowdData(train_data, CROWD_DATA_TRANSFORM, random_crop=args.dm_crop_size, 
+                                     resize_to_multiple_of_128=False, generate_discrete_map=True, 
+                                     discrete_map_downsample=args.dm_downsample_ratio)
     val_dataset = models.CrowdData(val_data, CROWD_DATA_TRANSFORM, resize_to_multiple_of_128=False,
                                    generate_discrete_map=False)
     
@@ -462,7 +462,7 @@ def train_dm_count(model, train_data: list[tuple[str, np.ndarray]], val_data: li
 
             outputs, outputs_normed = model(inputs)
             # Compute OT loss.
-            ot_loss, wd, ot_obj_value = ot_loss(outputs_normed, outputs, points)
+            ot_loss, wd, ot_obj_value = ot_loss_fn(outputs_normed, outputs, points)
             ot_loss = ot_loss * args.dm_wot
             ot_obj_value = ot_obj_value * args.dm_wot
             metrics["epoch_ot_loss"].update(ot_loss.item(), N)
@@ -470,14 +470,14 @@ def train_dm_count(model, train_data: list[tuple[str, np.ndarray]], val_data: li
             metrics["epoch_wd"].update(wd, N)
 
             # Compute counting loss.
-            count_loss = mae(outputs.sum(1).sum(1).sum(1),
+            count_loss = mae_fn(outputs.sum(1).sum(1).sum(1),
                                       torch.from_numpy(gd_count).float().to(device))
             metrics["epoch_count_loss"].update(count_loss.item(), N)
 
             # Compute TV loss.
             gd_count_tensor = torch.from_numpy(gd_count).float().to(device).unsqueeze(1).unsqueeze(2).unsqueeze(3)
             gt_discrete_normed = gt_discrete / (gd_count_tensor + 1e-6)
-            tv_loss = (tv_loss(outputs_normed, gt_discrete_normed).sum(1).sum(1).sum(1) \
+            tv_loss = (tv_loss_fn(outputs_normed, gt_discrete_normed).sum(1).sum(1).sum(1) \
                        * torch.from_numpy(gd_count).float().to(device)).mean(0) * args.dm_wtv
             metrics["epoch_tv_loss"].update(tv_loss.item(), N)
 
@@ -497,7 +497,7 @@ def train_dm_count(model, train_data: list[tuple[str, np.ndarray]], val_data: li
         logger.info(
             'Epoch {} Train, Loss: {:.2f}, OT Loss: {:.2e}, Wass Distance: {:.2f}, OT obj value: {:.2f}, '
             'Count Loss: {:.2f}, TV Loss: {:.2f}, MSE: {:.2f} MAE: {:.2f}, Cost {:.1f} sec'
-                .format(epoch, results["epoch_loss"], results["eopoch_ot_loss"], results["epoch_wd"],
+                .format(epoch, results["epoch_loss"], results["epoch_ot_loss"], results["epoch_wd"],
                         results["epoch_ot_obj_value"], results["epoch_count_loss"], results["epoch_tv_loss"],
                         np.sqrt(results["epoch_mse"].item()), results["epoch_mae"], time.time() - start_time)
         )
@@ -514,12 +514,12 @@ def train_dm_count(model, train_data: list[tuple[str, np.ndarray]], val_data: li
         logger.info(f'Epoch {epoch + 1} finished! Model saved at: {checkpoint_latest_path}')
 
         # Validation
-        if epoch % args.dm_eval_freq == 0:
+        if (epoch + 1) % args.dm_eval_freq == 0:
             logger.info("🔍 Starting evaluation")
             epoch_start = time.time()
             model.eval()  # Set model to evaluate mode
             epoch_res = []
-            for inputs, target in val_loader:
+            for inputs, target in tqdm(val_loader):
                 inputs = inputs.to(device)
                 assert inputs.size(0) == 1, 'the batch size should equal to 1 in validation mode'
                 with torch.no_grad():
