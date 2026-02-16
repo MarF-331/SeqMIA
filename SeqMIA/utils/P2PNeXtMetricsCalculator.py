@@ -12,6 +12,13 @@ from functools import partial
 from typing import Any, Optional
 
 
+def predicted_count(predicted_points: np.ndarray) -> int:
+    if len(predicted_points) == 0:
+        return 0
+    else:
+        return predicted_points.shape[0]
+    
+
 def ground_truth_count(target_points: np.ndarray) -> int:
     '''
     Extracts the ground truth people count by counting the points inside the provided target points.
@@ -181,6 +188,7 @@ class MetricTypes(Enum):
     ConfidencesOver95 = partial(confidences_over_threshold, threshold=0.95), "confidences_over_0.95"
     ConfidencesOver90 = partial(confidences_over_threshold, threshold=0.90), "confidences_over_0.90"
     GroundTruthCount = ground_truth_count, ground_truth_count.__name__
+    PredictedCount = predicted_count, predicted_count.__name__
     CountError = count_error, count_error.__name__
     NAP_K3_T001 = partial(nap, k=3, threshold=0.01), "nAP(k=3, d=0.01)"
     NAP_K3_T005 = partial(nap, k=3, threshold=0.05), "nAP(k=3, d=0.05)"
@@ -244,6 +252,9 @@ def calculate(output_raw: dict[str, torch.Tensor], target: list[dict[str, torch.
                 
                 case MetricTypes.GroundTruthCount as gt_count:
                     current_image_metrics[gt_count.value[1]] = gt_count.value[0](current_target_points)
+
+                case MetricTypes.PredictedCount as pred_count:
+                    current_image_metrics[pred_count.value[1]] = pred_count.value[0](current_pred_points)
 
                 case MetricTypes.CountError as c_err:
                     current_image_metrics[c_err.value[1]] = \

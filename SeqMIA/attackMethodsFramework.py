@@ -306,7 +306,7 @@ def train_p2p_next(model, criterion, train_data: list[tuple[str, np.ndarray]],
         resume_path = os.path.join(save_directory, "latest.pth")
         if os.path.exists(resume_path):
             logger.info(f"🔄 Resuming training from checkpoint {resume_path}")
-            checkpoint = torch.load(resume_path, map_location=device)
+            checkpoint = torch.load(resume_path, map_location=device, weights_only=False)
 
             model.load_state_dict(checkpoint["model"])
             optimizer.load_state_dict(checkpoint["optimizer"])
